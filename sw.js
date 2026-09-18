@@ -1,4 +1,4 @@
-const CACHE = 'coffee-v1';
+const CACHE = 'coffee-v2';
 const ASSETS = [
   './',
   './index.html',

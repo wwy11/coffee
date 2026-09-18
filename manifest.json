@@ -1,7 +1,7 @@
 {
-  "name": "我的咖啡",
-  "short_name": "我的咖啡",
-  "description": "快速记录每一杯咖啡的好喝程度",
+  "name": "我的饮品",
+  "short_name": "我的饮品",
+  "description": "快速记录每一杯饮品的好喝程度",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

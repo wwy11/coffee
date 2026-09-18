@@ -72,6 +72,54 @@ html, body {
 
 .content { padding: 0 0 96px; }
 
+/* 品类筛选条 */
+.cat-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  overflow-x: auto;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  -webkit-overflow-scrolling: touch;
+}
+.cat-tab {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-soft);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.cat-tab.on { background: var(--brown); color: #fff; border-color: var(--brown); }
+
+/* 列表/详情里的品类小标签 */
+.cat-chip {
+  display: inline-block;
+  background: #efe6de;
+  color: var(--brown-soft);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 12px;
+  margin-right: 6px;
+}
+
+/* 表单里的品类选择 */
+.cat-select { display: flex; gap: 8px; flex-wrap: wrap; }
+.cat-opt {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-soft);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.cat-opt.on { background: var(--brown); color: #fff; border-color: var(--brown); }
+
+.detail .d-cat { margin-top: 10px; }
+
 /* 列表 */
 .list-item {
   display: block;

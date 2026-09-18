@@ -1,5 +1,16 @@
 'use strict';
 
+/* ============ 品类 ============ */
+const CATEGORIES = [
+  { id: 'coffee', label: '咖啡' },
+  { id: 'milktea', label: '奶茶' },
+  { id: 'juice', label: '果汁' },
+  { id: 'other', label: '其他' },
+];
+const CAT_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label]));
+// 老数据无 category 时归为咖啡
+const normCat = (c) => (CAT_LABEL[c] ? c : 'coffee');
+
 /* ============ 存储层：IndexedDB ============ */
 const DB = (() => {
   const NAME = 'coffee-db';
@@ -35,7 +46,7 @@ const DB = (() => {
         const cur = store.openCursor();
         cur.onsuccess = () => {
           const c = cur.result;
-          if (c) { out.push(c.value); c.continue(); }
+          if (c) { const v = c.value; v.category = normCat(v.category); out.push(v); c.continue(); }
           else { out.sort((a, b) => b.drankAt - a.drankAt); res(out); }
         };
         cur.onerror = () => rej(cur.error);
@@ -45,7 +56,7 @@ const DB = (() => {
       const store = await tx('readonly');
       return new Promise((res, rej) => {
         const r = store.get(id);
-        r.onsuccess = () => res(r.result);
+        r.onsuccess = () => { const v = r.result; if (v) v.category = normCat(v.category); res(v); };
         r.onerror = () => rej(r.error);
       });
     },
@@ -120,7 +131,7 @@ const LS_LAST_BACKUP = 'coffee-last-backup';
 const app = document.getElementById('app');
 const routes = {};
 function route(name, fn) { routes[name] = fn; }
-let state = { search: '' };
+let state = { search: '', cat: 'all' };
 
 function go(name, params) {
   location.hash = '#' + name + (params ? '?' + new URLSearchParams(params) : '');
@@ -134,20 +145,16 @@ function render() {
 window.addEventListener('hashchange', render);
 window.addEventListener('DOMContentLoaded', render);
 
-/* ============ 首页：列表 + 搜索 ============ */
+/* ============ 首页：列表 + 搜索 + 品类筛选 ============ */
 route('home', async () => {
   const records = await DB.all();
-  const q = state.search.trim().toLowerCase();
-  const filtered = q
-    ? records.filter((r) => (r.shop + ' ' + r.coffee).toLowerCase().includes(q))
-    : records;
 
   const page = el(`<div></div>`);
 
   // 顶栏
   const topbar = el(`<div class="topbar"></div>`);
   if (state.searchOpen) {
-    const bar = el(`<div class="searchbar"><input type="text" placeholder="🔍 搜店名 / 咖啡名" /></div>`);
+    const bar = el(`<div class="searchbar"><input type="text" placeholder="🔍 搜店名 / 饮品名" /></div>`);
     const input = bar.querySelector('input');
     input.value = state.search;
     input.addEventListener('input', () => { state.search = input.value; renderList(); });
@@ -157,7 +164,7 @@ route('home', async () => {
     setTimeout(() => input.focus(), 0);
   } else {
     topbar.append(
-      el(`<div class="title">☕ 我的咖啡</div>`),
+      el(`<div class="title">🥤 我的饮品</div>`),
     );
     const search = el(`<button class="iconbtn" aria-label="搜索">🔍</button>`);
     search.onclick = () => { state.searchOpen = true; render(); };
@@ -167,19 +174,38 @@ route('home', async () => {
   }
   page.append(topbar);
 
+  // 品类筛选条
+  const tabs = el(`<div class="cat-tabs"></div>`);
+  const catOptions = [{ id: 'all', label: '全部' }, ...CATEGORIES];
+  const tabEls = {};
+  for (const c of catOptions) {
+    const t = el(`<button class="cat-tab${state.cat === c.id ? ' on' : ''}">${c.label}</button>`);
+    t.onclick = () => {
+      state.cat = c.id;
+      Object.values(tabEls).forEach((x) => x.classList.remove('on'));
+      t.classList.add('on');
+      renderList();
+    };
+    tabEls[c.id] = t;
+    tabs.append(t);
+  }
+  page.append(tabs);
+
   const content = el(`<div class="content"></div>`);
   page.append(content);
 
   function renderList() {
     content.innerHTML = '';
     const q2 = state.search.trim().toLowerCase();
-    const list = q2 ? records.filter((r) => (r.shop + ' ' + r.coffee).toLowerCase().includes(q2)) : records;
+    let list = records;
+    if (state.cat !== 'all') list = list.filter((r) => r.category === state.cat);
+    if (q2) list = list.filter((r) => (r.shop + ' ' + r.coffee).toLowerCase().includes(q2));
     if (records.length === 0) {
       content.append(el(`
         <div class="empty">
-          <div class="big">☕</div>
+          <div class="big">🥤</div>
           <div class="t1">还没有记录</div>
-          <div class="t2">喝到一杯好咖啡就记下来吧</div>
+          <div class="t2">喝到一杯好喝的就记下来吧</div>
         </div>`));
       return;
     }
@@ -191,7 +217,7 @@ route('home', async () => {
       const item = el(`
         <button class="list-item">
           <div><span class="stars">${stars(r.rating)}</span><span class="shop">${esc(r.shop || '未命名')}</span></div>
-          <div class="sub">${esc(r.coffee || '')}${r.coffee ? ' · ' : ''}${relTime(r.drankAt)}</div>
+          <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${esc(r.coffee || '')}${r.coffee ? ' · ' : ' '}${relTime(r.drankAt)}</div>
         </button>`);
       item.onclick = () => go('detail', { id: r.id });
       content.append(item);
@@ -212,7 +238,8 @@ route('home', async () => {
 /* ============ 记一杯 / 编辑 表单 ============ */
 route('edit', async (params) => {
   const editing = params.id ? await DB.get(params.id) : null;
-  const rec = editing || { id: uid(), shop: '', coffee: '', rating: 0, note: '', drankAt: Date.now(), photo: null };
+  const rec = editing || { id: uid(), category: 'coffee', shop: '', coffee: '', rating: 0, note: '', drankAt: Date.now(), photo: null };
+  rec.category = normCat(rec.category);
 
   const page = el(`<div></div>`);
   const topbar = el(`<div class="topbar"></div>`);
@@ -233,11 +260,16 @@ route('edit', async (params) => {
   fileInput.onchange = () => { if (fileInput.files[0]) runOCR(fileInput.files[0]); };
   form.append(ocrBtn, fileInput);
 
+  const catField = el(`
+    <div class="field"><label>品类</label>
+      <div class="cat-select">
+        ${CATEGORIES.map((c) => `<button type="button" class="cat-opt${rec.category === c.id ? ' on' : ''}" data-cat="${c.id}">${c.label}</button>`).join('')}
+      </div></div>`);
   const shopField = el(`
     <div class="field"><label>店名</label>
       <input type="text" id="f-shop" value="${esc(rec.shop)}" /></div>`);
   const coffeeField = el(`
-    <div class="field"><label>咖啡名</label>
+    <div class="field"><label>饮品名</label>
       <input type="text" id="f-coffee" value="${esc(rec.coffee)}" /></div>`);
   const ratingField = el(`
     <div class="field"><label>评分</label>
@@ -253,8 +285,14 @@ route('edit', async (params) => {
         <input type="datetime-local" id="f-time" value="${toLocalInput(rec.drankAt)}" />
       </div></div>`);
 
-  form.append(shopField, coffeeField, ratingField, noteField, timeField);
+  form.append(catField, shopField, coffeeField, ratingField, noteField, timeField);
   page.append(form);
+
+  const catOpts = [...catField.querySelectorAll('.cat-opt')];
+  catOpts.forEach((b) => b.onclick = () => {
+    rec.category = b.dataset.cat;
+    catOpts.forEach((x) => x.classList.toggle('on', x.dataset.cat === rec.category));
+  });
 
   const shopInput = shopField.querySelector('input');
   const coffeeInput = coffeeField.querySelector('input');
@@ -370,10 +408,11 @@ route('detail', async (params) => {
     <div class="detail">
       <div class="d-stars">${stars(rec.rating)}</div>
       <div class="d-shop">${esc(rec.shop || '未命名')}</div>
+      <div class="d-cat"><span class="cat-chip">${CAT_LABEL[rec.category]}</span></div>
       ${rec.coffee ? `<div class="d-coffee">${esc(rec.coffee)}</div>` : ''}
       ${rec.note ? `<div class="d-note">${esc(rec.note)}</div>` : ''}
       <div class="d-time">${new Date(rec.drankAt).toLocaleString('zh-CN')}</div>
-      ${rec.photo ? `<div class="d-photo"><img src="${rec.photo}" alt="咖啡照片" /></div>` : ''}
+      ${rec.photo ? `<div class="d-photo"><img src="${rec.photo}" alt="饮品照片" /></div>` : ''}
     </div>`);
   page.append(detail);
 
@@ -402,7 +441,7 @@ route('settings', async () => {
     const a = document.createElement('a');
     const d = new Date();
     a.href = url;
-    a.download = `咖啡记录-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
+    a.download = `饮品记录-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
     a.click();
     URL.revokeObjectURL(url);
     localStorage.setItem(LS_LAST_BACKUP, String(Date.now()));
@@ -420,7 +459,7 @@ route('settings', async () => {
       const recs = Array.isArray(data) ? data : data.records;
       if (!Array.isArray(recs)) throw new Error('格式不对');
       const valid = recs.filter((r) => r && r.id).map((r) => ({
-        id: String(r.id), shop: r.shop || '', coffee: r.coffee || '',
+        id: String(r.id), category: normCat(r.category), shop: r.shop || '', coffee: r.coffee || '',
         rating: Number(r.rating) || 0, note: r.note || '',
         drankAt: Number(r.drankAt) || Date.now(),
         createdAt: Number(r.createdAt) || Date.now(),
@@ -455,7 +494,12 @@ route('settings', async () => {
     const shopCount = {};
     records.forEach((r) => { if (r.shop) shopCount[r.shop] = (shopCount[r.shop] || 0) + 1; });
     const top = Object.entries(shopCount).sort((a, b) => b[1] - a[1])[0];
+    const catCount = CATEGORIES
+      .map((c) => ({ label: c.label, n: records.filter((r) => r.category === c.id).length }))
+      .filter((x) => x.n > 0);
+    const catLine = catCount.map((x) => `${x.label} ${x.n}`).join(' · ');
     s.append(el(`<div class="stat">共 ${records.length} 杯 · 平均 ${avg}★${top ? ` · 最常喝 ${esc(top[0])}` : ''}</div>`));
+    s.append(el(`<div class="stat" style="margin-top:8px">${catLine}</div>`));
   }
 
   page.append(s);
