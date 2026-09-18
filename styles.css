@@ -345,3 +345,44 @@ html, body {
   animation: fadein .2s ease;
 }
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+/* 错误兜底页的重试按钮 */
+.empty .retry-btn {
+  margin-top: 24px;
+  padding: 10px 28px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.empty .retry-btn:active { background: var(--line); }
+
+/* ============ 暗色模式 ============ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161a16;
+    --surface: #1e231e;
+    --brown: #6fae8e;
+    --brown-soft: #8fc7a9;
+    --mint: #27402f;
+    --text: #e3e8e0;
+    --text-soft: #949e91;
+    --line: #2a312a;
+    --star: #e8a33d;
+    --star-off: #3f4a3c;
+    --danger: #d96457;
+    --ok: #7fbf8c;
+    --warn-bg: #38301b;
+    --warn-text: #d9b35e;
+    --shadow: 0 4px 16px rgba(0, 0, 0, .45);
+  }
+
+  /* 下面这些颜色之前写死了亮色值，暗色下逐个覆盖 */
+  .item-wrap:active .item-body { background: #232923; }
+  .ocr-btn:active { background: #2b3a2e; }
+  .settings .bigbtn:active { background: #2b3a2e; }
+  .hint.ok { background: #1d2b21; }
+  .cat-chip { color: #a9d8bd; }
+}
