@@ -10,7 +10,6 @@
   --star: #e8a33d;
   --star-off: #c5d3bb;
   --danger: #c0483b;
-  --ok: #4f8a5b;
   --warn-bg: #fdf3e2;
   --warn-text: #9a6b13;
   --radius: 18px;
@@ -224,18 +223,6 @@ html, body {
 
 /* 表单 */
 .form { padding: 8px 16px; }
-.import-row { display: flex; gap: 10px; margin: 8px 0 16px; }
-.ocr-btn {
-  flex: 1;
-  border: 1px dashed var(--brown-soft);
-  background: var(--surface);
-  color: var(--brown);
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 15px;
-  cursor: pointer;
-}
-.ocr-btn:active { background: #cfe3b8; }
 .field { margin-bottom: 16px; }
 .field label {
   display: block;
@@ -284,7 +271,6 @@ html, body {
   font-size: 14px;
   margin-bottom: 16px;
 }
-.hint.ok { background: #eef6ef; color: var(--ok); }
 .hint.warn { background: var(--warn-bg); color: var(--warn-text); }
 
 /* 详情 */
@@ -359,30 +345,29 @@ html, body {
 }
 .empty .retry-btn:active { background: var(--line); }
 
-/* ============ 暗色模式 ============ */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161a16;
-    --surface: #1e231e;
-    --brown: #6fae8e;
-    --brown-soft: #8fc7a9;
-    --mint: #27402f;
-    --text: #e3e8e0;
-    --text-soft: #949e91;
-    --line: #2a312a;
-    --star: #e8a33d;
-    --star-off: #3f4a3c;
-    --danger: #d96457;
-    --ok: #7fbf8c;
-    --warn-bg: #38301b;
-    --warn-text: #d9b35e;
-    --shadow: 0 4px 16px rgba(0, 0, 0, .45);
-  }
+/* 设置页里的外观选项：复用筛选条胶囊样式，去掉条状背景 */
+.settings .theme-tabs { border-bottom: none; padding: 0 0 4px; }
 
-  /* 下面这些颜色之前写死了亮色值，暗色下逐个覆盖 */
-  .item-wrap:active .item-body { background: #232923; }
-  .ocr-btn:active { background: #2b3a2e; }
-  .settings .bigbtn:active { background: #2b3a2e; }
-  .hint.ok { background: #1d2b21; }
-  .cat-chip { color: #a9d8bd; }
+/* ============ 深色模式 ============ */
+/* 由 <html data-theme="dark"> 触发（跟随系统或手动固定，逻辑见 app.js / index.html） */
+:root[data-theme="dark"] {
+  --bg: #161a16;
+  --surface: #1e231e;
+  --brown: #6fae8e;
+  --brown-soft: #8fc7a9;
+  --mint: #27402f;
+  --text: #e3e8e0;
+  --text-soft: #949e91;
+  --line: #2a312a;
+  --star: #e8a33d;
+  --star-off: #3f4a3c;
+  --danger: #d96457;
+  --warn-bg: #38301b;
+  --warn-text: #d9b35e;
+  --shadow: 0 4px 16px rgba(0, 0, 0, .45);
 }
+
+/* 下面这些颜色之前写死了亮色值，深色下逐个覆盖 */
+:root[data-theme="dark"] .item-wrap:active .item-body { background: #232923; }
+:root[data-theme="dark"] .settings .bigbtn:active { background: #2b3a2e; }
+:root[data-theme="dark"] .cat-chip { color: #a9d8bd; }

@@ -1,10 +1,9 @@
-const CACHE = 'coffee-v7';
+const CACHE = 'coffee-v8';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
-  './voice-parse.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -31,7 +30,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== location.origin) return; // 跨域（如 OCR 库）交给浏览器默认处理
+  if (url.origin !== location.origin) return; // 跨域资源交给浏览器默认处理
 
   // 本站资源：network-first —— 有网总拿最新，离线才回退缓存
   e.respondWith(

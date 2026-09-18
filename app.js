@@ -1,5 +1,3 @@
-import { parseVoice } from './voice-parse.js';
-
 'use strict';
 
 /* ============ 品类 ============ */
@@ -184,6 +182,37 @@ function attachSwipe(wrap, body) {
 }
 
 const LS_LAST_BACKUP = 'coffee-last-backup';
+
+/* ============ 主题：默认跟随系统，设置页可固定为浅色/深色 ============ */
+const LS_THEME = 'coffee-theme';
+const THEME_COLOR = { light: '#88c1a3', dark: '#161a16' };
+const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+// 'auto' | 'light' | 'dark'；无记录时视为 auto
+function storedTheme() {
+  const t = localStorage.getItem(LS_THEME);
+  return (t === 'light' || t === 'dark') ? t : 'auto';
+}
+// 把当前主题应用到 <html data-theme> 和状态栏颜色（theme-color meta）
+function applyTheme() {
+  const m = storedTheme();
+  const dark = m === 'dark' || (m === 'auto' && mqDark.matches);
+  // 必须带值：CSS 用 [data-theme="dark"] 匹配，空值属性（toggleAttribute）匹配不上
+  if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? THEME_COLOR.dark : THEME_COLOR.light);
+}
+function setTheme(mode) {
+  try {
+    localStorage.setItem(LS_THEME, mode);
+  } catch (e) {} // 隐私模式等场景 localStorage 可能不可用，本次会话仍生效
+  applyTheme();
+}
+// "跟随系统"下系统切换亮暗时实时跟进；老 iOS 用 addListener
+if (mqDark.addEventListener) mqDark.addEventListener('change', () => { if (storedTheme() === 'auto') applyTheme(); });
+else if (mqDark.addListener) mqDark.addListener(() => { if (storedTheme() === 'auto') applyTheme(); });
+applyTheme();
 
 /* ============ 路由 ============ */
 const app = document.getElementById('app');
@@ -387,19 +416,6 @@ route('edit', async (params) => {
   const hintSlot = el(`<div></div>`);
   form.append(hintSlot);
 
-  const importRow = el(`<div class="import-row"></div>`);
-  const ocrBtn = el(`<button class="ocr-btn">📷 截图识别</button>`);
-  const fileInput = el(`<input type="file" accept="image/*" style="display:none" />`);
-  ocrBtn.onclick = () => fileInput.click();
-  fileInput.onchange = () => { if (fileInput.files[0]) runOCR(fileInput.files[0]); };
-  importRow.append(ocrBtn);
-  if (Voice.supported) {
-    const voiceBtn = el(`<button class="ocr-btn">🎤 语音输入</button>`);
-    voiceBtn.onclick = () => runVoice(voiceBtn);
-    importRow.append(voiceBtn);
-  }
-  form.append(importRow, fileInput);
-
   const catField = el(`
     <div class="field"><label>品类</label>
       <div class="cat-select">
@@ -471,68 +487,6 @@ route('edit', async (params) => {
     };
     shopInput.addEventListener('blur', check);
     coffeeInput.addEventListener('blur', check);
-  }
-
-  async function runOCR(file) {
-    const overlay = showOverlay(`<div class="spinner"></div><div class="msg">正在识别…</div>`);
-    try {
-      const text = await OCR.recognize(file);
-      overlay.remove();
-      if (!text || !text.trim()) throw new Error('empty');
-      const guess = OCR.guessFields(text);
-      if (guess.shop) shopInput.value = guess.shop;
-      if (guess.coffee) coffeeInput.value = guess.coffee;
-      validate();
-      hintSlot.innerHTML = '';
-      hintSlot.append(el(`<div class="hint ok">✓ 已从截图识别，请核对</div>`));
-    } catch (e) {
-      overlay.remove();
-      showOverlay(`
-        <div class="msg">没认出来，手动填吧</div>
-        <div class="row">
-          <button id="ov-retry">重新选图</button>
-          <button id="ov-manual" class="primary">手动填</button>
-        </div>`, (box, close) => {
-        box.querySelector('#ov-retry').onclick = () => { close(); fileInput.value = ''; fileInput.click(); };
-        box.querySelector('#ov-manual').onclick = close;
-      });
-    } finally {
-      fileInput.value = '';
-    }
-  }
-
-  async function runVoice(btn) {
-    const overlay = showOverlay(`<div class="spinner"></div><div class="msg">请说话…<br><span style="font-size:13px;color:var(--text-soft)">例：刚才喝了一杯 manner 的橘皮拿铁</span></div>`);
-    try {
-      const text = await Voice.listen();
-      overlay.remove();
-      if (!text || !text.trim()) throw new Error('empty');
-      const g = Voice.parse(text);
-      if (g.shop) shopInput.value = g.shop;
-      if (g.coffee) coffeeInput.value = g.coffee;
-      if (g.drankAt) { rec.drankAt = g.drankAt; timeInput.value = toLocalInput(g.drankAt); }
-      if (g.category) {
-        rec.category = g.category;
-        catOpts.forEach((x) => x.classList.toggle('on', x.dataset.cat === rec.category));
-      }
-      validate();
-      hintSlot.innerHTML = '';
-      hintSlot.append(el(`<div class="hint ok">✓ 已识别：「${esc(text)}」，请核对</div>`));
-    } catch (e) {
-      overlay.remove();
-      const msg = e.message === 'not-allowed' ? '麦克风没授权，请在系统设置里允许'
-        : e.message === 'no-speech' ? '没听到声音，再试一次'
-        : '识别失败，手动填吧';
-      showOverlay(`
-        <div class="msg">${msg}</div>
-        <div class="row">
-          <button id="ov-retry">重说</button>
-          <button id="ov-manual" class="primary">手动填</button>
-        </div>`, (box, close) => {
-        box.querySelector('#ov-retry').onclick = () => { close(); runVoice(btn); };
-        box.querySelector('#ov-manual').onclick = close;
-      });
-    }
   }
 
   save.onclick = async () => {
@@ -620,6 +574,19 @@ route('settings', async () => {
 
   const s = el(`<div class="settings"></div>`);
 
+  // 外观
+  s.append(el(`<h3>外观</h3>`));
+  const themeTabs = el(`<div class="cat-tabs theme-tabs"></div>`);
+  for (const m of [{ v: 'auto', label: '跟随系统' }, { v: 'light', label: '浅色' }, { v: 'dark', label: '深色' }]) {
+    const b = el(`<button class="cat-tab${storedTheme() === m.v ? ' on' : ''}">${m.label}</button>`);
+    b.onclick = () => {
+      setTheme(m.v);
+      themeTabs.querySelectorAll('.cat-tab').forEach((x) => x.classList.toggle('on', x === b));
+    };
+    themeTabs.append(b);
+  }
+  s.append(themeTabs);
+
   // 备份
   s.append(el(`<h3>数据备份</h3>`));
   const exportBtn = el(`<button class="bigbtn">⬆ 导出全部记录</button>`);
@@ -705,63 +672,3 @@ function showOverlay(innerHTML, setup) {
   if (setup) setup(box, close);
   return overlay;
 }
-
-/* ============ OCR（按需加载 tesseract.js） ============ */
-const OCR = (() => {
-  let loaded = null;
-  function load() {
-    if (loaded) return loaded;
-    loaded = new Promise((resolve, reject) => {
-      const sc = document.createElement('script');
-      sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-      sc.onload = resolve;
-      sc.onerror = () => reject(new Error('no-network'));
-      document.head.appendChild(sc);
-    });
-    return loaded;
-  }
-  return {
-    async recognize(file) {
-      await load();
-      const { data } = await Tesseract.recognize(file, 'chi_sim+eng');
-      return data.text || '';
-    },
-    // 启发式：从 OCR 文本猜店名/咖啡名
-    guessFields(text) {
-      const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length >= 2 && l.length <= 20);
-      const coffeeKw = /(拿铁|美式|摩卡|卡布|澳白|馥芮白|dirty|espresso|latte|americano|mocha|馥芮|生椰|手冲|耶加|冷萃|燕麦|香草|焦糖|气泡|冰博克)/i;
-      const shopKw = /(咖啡|coffee|café|cafe|星巴克|瑞幸|manner|库迪|nowwa|挪瓦|tims|arabica|blue bottle|% ?arabica|seesaw|m stand)/i;
-      let coffee = '', shop = '';
-      for (const l of lines) {
-        if (!coffee && coffeeKw.test(l)) coffee = l.replace(/[¥￥]?\d+(\.\d+)?元?/g, '').trim();
-        if (!shop && shopKw.test(l)) shop = l;
-      }
-      // 兜底：第一行常是店名
-      if (!shop && lines[0]) shop = lines[0];
-      return { shop, coffee };
-    },
-  };
-})();
-
-/* ============ 语音输入（Web Speech API；文本解析规则在 voice-parse.js，可被 Vitest 单测） ============ */
-const Voice = (() => {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const supported = !!SR;
-
-  function listen() {
-    return new Promise((resolve, reject) => {
-      if (!supported) return reject(new Error('unsupported'));
-      const rec = new SR();
-      rec.lang = 'zh-CN';
-      rec.interimResults = false;
-      rec.maxAlternatives = 1;
-      let done = false;
-      rec.onresult = (e) => { done = true; resolve(e.results[0][0].transcript || ''); };
-      rec.onerror = (e) => { if (!done) reject(new Error(e.error || 'error')); };
-      rec.onend = () => { if (!done) reject(new Error('no-speech')); };
-      rec.start();
-    });
-  }
-
-  return { supported, listen, parse: parseVoice };
-})();
