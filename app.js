@@ -131,7 +131,7 @@ const LS_LAST_BACKUP = 'coffee-last-backup';
 const app = document.getElementById('app');
 const routes = {};
 function route(name, fn) { routes[name] = fn; }
-let state = { search: '', cat: 'all' };
+let state = { search: '', cat: 'all', star: 0, starOpen: false };
 
 function go(name, params) {
   location.hash = '#' + name + (params ? '?' + new URLSearchParams(params) : '');
@@ -189,7 +189,30 @@ route('home', async () => {
     tabEls[c.id] = t;
     tabs.append(t);
   }
+  // 星级筛选展开按钮（默认隐藏筛选条，点这里展开）
+  const starToggle = el(`<button class="cat-tab star-toggle${state.starOpen || state.star ? ' on' : ''}" aria-label="按星级筛选">☆ 星级</button>`);
+  starToggle.onclick = () => { state.starOpen = !state.starOpen; render(); };
+  tabs.append(starToggle);
   page.append(tabs);
+
+  // 星级筛选条（默认隐藏）
+  if (state.starOpen) {
+    const starBar = el(`<div class="star-tabs"></div>`);
+    const starOptions = [{ v: 0, label: '全部' }, { v: 5, label: '5★' }, { v: 4, label: '4★+' }, { v: 3, label: '3★+' }, { v: 2, label: '2★+' }, { v: 1, label: '1★+' }];
+    const starEls = {};
+    for (const o of starOptions) {
+      const t = el(`<button class="star-tab${state.star === o.v ? ' on' : ''}">${o.label}</button>`);
+      t.onclick = () => {
+        state.star = o.v;
+        Object.values(starEls).forEach((x) => x.classList.remove('on'));
+        t.classList.add('on');
+        renderList();
+      };
+      starEls[o.v] = t;
+      starBar.append(t);
+    }
+    page.append(starBar);
+  }
 
   const content = el(`<div class="content"></div>`);
   page.append(content);
@@ -199,6 +222,8 @@ route('home', async () => {
     const q2 = state.search.trim().toLowerCase();
     let list = records;
     if (state.cat !== 'all') list = list.filter((r) => r.category === state.cat);
+    if (state.star === 5) list = list.filter((r) => r.rating === 5);
+    else if (state.star > 0) list = list.filter((r) => r.rating >= state.star);
     if (q2) list = list.filter((r) => (r.shop + ' ' + r.coffee).toLowerCase().includes(q2));
     if (records.length === 0) {
       content.append(el(`

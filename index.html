@@ -19,8 +19,28 @@
   <script src="app.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(() => {});
+      window.addEventListener('load', async () => {
+        try {
+          const reg = await navigator.serviceWorker.register('sw.js');
+          // 每次打开主动查一次更新
+          reg.update();
+          // 新版本装好后自动切换并刷新一次（数据不受影响）
+          reg.addEventListener('updatefound', () => {
+            const sw = reg.installing;
+            if (!sw) return;
+            sw.addEventListener('statechange', () => {
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                sw.postMessage('skip-waiting');
+              }
+            });
+          });
+          let refreshed = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (refreshed) return;
+            refreshed = true;
+            location.reload();
+          });
+        } catch (e) {}
       });
     }
   </script>

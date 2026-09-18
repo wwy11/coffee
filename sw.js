@@ -1,4 +1,4 @@
-const CACHE = 'coffee-v2';
+const CACHE = 'coffee-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
+  // 新版本装好后立即接管，不等旧标签页关闭
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
@@ -21,16 +22,24 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+self.addEventListener('message', (e) => {
+  if (e.data === 'skip-waiting') self.skipWaiting();
+});
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  // OCR 库等跨域资源走网络优先，其余走缓存优先
-  if (new URL(req.url).origin !== location.origin) return;
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return; // 跨域（如 OCR 库）交给浏览器默认处理
+
+  // 本站资源：network-first —— 有网总拿最新，离线才回退缓存
   e.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req).then((res) => {
-      const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-      return res;
-    }).catch(() => cached))
+    fetch(req)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        return res;
+      })
+      .catch(() => caches.match(req).then((cached) => cached || caches.match('./index.html')))
   );
 });
