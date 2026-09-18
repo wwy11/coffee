@@ -592,29 +592,65 @@ route('edit', async (params) => {
     coffeeInput.addEventListener('blur', check);
   }
 
-  // 语音说一句「店名+饮品名」，切分填入
+  // 语音说一句「店名+饮品名」，切分填入。
+  // 识别可能一直不结束（iOS onend 偶发不触发），所以有三个出口：
+  // ① 识别完成 ② 手动点「停止」 ③ 30 秒看门狗自动停。停止后 2.5 秒宽限期内
+  // 仍等得到结果就用它，等不到就强制收尾进失败浮层，绝不永远转圈。
   async function runVoice() {
-    const overlay = showOverlay(`<div class="spinner"></div><div class="msg">请说出「店名 + 饮品名」<br><span style="font-size:13px;color:var(--text-soft)">例：manner 拿铁巴西喜拉多日晒</span></div>`);
+    const handle = Voice.listen();
+    let overlay = null, grace = null, finished = false;
+
+    const enterGrace = (btn) => {
+      if (grace || finished) return;
+      if (btn) { btn.disabled = true; btn.textContent = '停止中…'; }
+      try { handle.stop(); } catch (e) {}
+      grace = setTimeout(() => {
+        if (finished) return;
+        finished = true;
+        handle.abort();
+        if (overlay) overlay.remove();
+        showVoiceFail('没听清内容，再试一次');
+      }, 2500);
+    };
+
+    overlay = showOverlay(`
+      <div class="spinner"></div>
+      <div class="msg">请说出「店名 + 饮品名」<br><span style="font-size:13px;color:var(--text-soft)">例：manner 拿铁巴西喜拉多日晒</span></div>
+      <div class="row"><button id="ov-stop">停止</button></div>`, (box) => {
+      box.querySelector('#ov-stop').onclick = (e) => enterGrace(e.target);
+    });
+
+    setTimeout(() => enterGrace(null), 30000); // 看门狗
+
     try {
-      const text = await Voice.listen();
+      const text = await handle.promise;
+      finished = true;
+      clearTimeout(grace);
       overlay.remove();
       if (!text || !text.trim()) throw new Error('empty');
       applySplit(text, `✓ 「${esc(text)}」已切分填入，请核对`);
     } catch (e) {
+      finished = true;
+      clearTimeout(grace);
       overlay.remove();
-      const msg = e.message === 'not-allowed' ? '麦克风没授权，请在系统设置里允许'
+      showVoiceFail(
+        e.message === 'not-allowed' ? '麦克风没授权，请在系统设置里允许'
         : e.message === 'no-speech' ? '没听到声音，再试一次'
-        : '识别失败，手动填吧';
-      showOverlay(`
-        <div class="msg">${msg}</div>
-        <div class="row">
-          <button id="ov-retry">重说</button>
-          <button id="ov-manual" class="primary">手动填</button>
-        </div>`, (box, close) => {
-        box.querySelector('#ov-retry').onclick = () => { close(); runVoice(); };
-        box.querySelector('#ov-manual').onclick = close;
-      });
+        : '识别失败，手动填吧'
+      );
     }
+  }
+
+  function showVoiceFail(msg) {
+    showOverlay(`
+      <div class="msg">${msg}</div>
+      <div class="row">
+        <button id="ov-retry">重说</button>
+        <button id="ov-manual" class="primary">手动填</button>
+      </div>`, (box, close) => {
+      box.querySelector('#ov-retry').onclick = () => { close(); runVoice(); };
+      box.querySelector('#ov-manual').onclick = close;
+    });
   }
 
   // 文本粘一句「店名+饮品名」，切分填入（语音不可用/没听清时的兜底）
@@ -856,19 +892,35 @@ function showOverlay(innerHTML, setup) {
 /* ============ 语音识别（Web Speech API；切分规则见 splitShopDrink） ============ */
 const Voice = (() => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // 返回 { promise, stop, abort }：
+  // stop 优雅收尾（iOS 会把已说的话吐成最终结果，onresult/onend 随后触发）；
+  // abort 立即放弃并释放麦克风。iOS 的 onend 偶发不触发导致 Promise 挂起，
+  // 上层必须用「宽限期 + 超时」兜底，不能只依赖事件回调。
   function listen() {
-    return new Promise((resolve, reject) => {
-      if (!SR) return reject(new Error('unsupported'));
-      const rec = new SR();
+    let rec = null, settled = false;
+    const promise = new Promise((resolve, reject) => {
+      if (!SR) { settled = true; reject(new Error('unsupported')); return; }
+      rec = new SR();
       rec.lang = 'zh-CN';
       rec.interimResults = false;
       rec.maxAlternatives = 1;
-      let done = false;
-      rec.onresult = (e) => { done = true; resolve(e.results[0][0].transcript || ''); };
-      rec.onerror = (e) => { if (!done) reject(new Error(e.error || 'error')); };
-      rec.onend = () => { if (!done) reject(new Error('no-speech')); };
-      rec.start();
+      rec.onresult = (e) => { if (!settled) { settled = true; resolve(e.results[0][0].transcript || ''); } };
+      rec.onerror = (e) => { if (!settled) { settled = true; reject(new Error(e.error || 'error')); } };
+      rec.onend = () => { if (!settled) { settled = true; reject(new Error('no-speech')); } };
+      try {
+        rec.start();
+      } catch (e) {
+        if (!settled) { settled = true; reject(e); }
+      }
     });
+    return {
+      promise,
+      stop() { if (rec && rec.state === 'recording') { try { rec.stop(); } catch (e) {} } },
+      abort() {
+        settled = true; // 上层已放弃，之后的事件一律忽略
+        if (rec) { try { rec.abort(); } catch (e) {} }
+      },
+    };
   }
   return { supported: !!SR, listen };
 })();
