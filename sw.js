@@ -1,9 +1,10 @@
-const CACHE = 'coffee-v6';
+const CACHE = 'coffee-v7';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './voice-parse.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',

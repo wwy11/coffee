@@ -15,8 +15,8 @@
 <body>
   <div id="app"></div>
 
-  <!-- OCR 库，按需在选择图片时动态加载，不阻塞首屏 -->
-  <script src="app.js"></script>
+  <!-- 应用脚本（ES module，引入 voice-parse.js）；OCR 库在选择图片时才动态加载，不阻塞首屏 -->
+  <script type="module" src="app.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {

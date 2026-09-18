@@ -1,0 +1,14 @@
+{
+  "name": "coffee",
+  "version": "1.0.0",
+  "private": true,
+  "description": "饮记 —— 记录每一杯饮品的 PWA（原生 JS，无构建步骤；Node 工具链仅用于跑测试）",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  }
+}
