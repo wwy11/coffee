@@ -181,6 +181,99 @@ function attachSwipe(wrap, body) {
   });
 }
 
+/* ============ 快速输入：把「店名+饮品名」一句话切成两个字段 ============ */
+// 店名词库：命中即按词库标准写法填入（顺带纠正拼写/大小写）。想加新店直接往里放。
+const SHOP_KW = [
+  // 咖啡连锁
+  '星巴克', '瑞幸', 'luckin', '库迪', 'Cotti', 'Manner', 'M Stand', 'Seesaw',
+  '%Arabica', 'Arabica', 'Blue Bottle', '蓝瓶', 'Tim Hortons', 'Tims', 'Costa',
+  "Peet's", 'Peets', '皮爷', 'NOWWA', '挪瓦', 'T97', '幸运咖', '歪咖啡',
+  '代数学家', 'Algebraist', '鹰集', 'Grid Coffee', 'Metal Hands', '铁手',
+  // 茶饮
+  '喜茶', '奈雪', '茶百道', '蜜雪冰城', '雪王', '古茗', '沪上阿姨', '霸王茶姬',
+  '茶颜悦色', '乐乐茶', 'Lelecha', 'CoCo', '都可', '一点点', '书亦', '益禾堂',
+  '7分甜', '甜啦啦', '茶理宜世', '茉莉奶白', '阿嬷手作', '丘大叔', '伏见桃山',
+  'LINLEE', '柠季', '挞柠', '爷爷不泡茶', '茶救星球', '快乐柠檬', '贡茶',
+  // 果汁/鲜榨/酸奶
+  '混果汁', '一芳', '果呀呀', '果之满满', '鲜果时间', '果汁先生', '满小柚',
+  '本来不该有', '野人先生', '莓超疯', 'gaga', '一只酸奶牛',
+  // 酸奶/其他
+  'Blueglass', '茉酸奶',
+];
+const SHOP_KW_COMPACT = SHOP_KW.map((k) => ({ name: k, key: k.replace(/\s+/g, '').toLowerCase() }));
+
+// 口语开头词（剥掉，避免混进店名）
+const LEAD_WORDS = ['来一杯', '给我来', '帮我来', '来杯', '我要', '喝一杯', '喝个', '点一杯', '点个', '刚在', '刚去', '买了'];
+
+// 兜底用品类词：词库没收录店名时，按第一个品类词的位置切（允许犯错，店名保留原话）
+const DRINK_HINT = /(拿铁|美式|澳白|dirty|摩卡|卡布|浓缩|手冲|冷萃|生椰|奶茶|柠檬茶|杨枝甘露|轻乳茶|芝士|水果茶|奶咖|燕麦|龙井|茉莉|乌龙|四季春)/;
+
+/* 自定义店名词库：保存记录时自动收集词库外的新店名，切分时与内置词库合并使用 */
+const LS_CUSTOM_SHOPS = 'coffee-custom-shops';
+function loadCustomShops() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LS_CUSTOM_SHOPS) || '[]');
+    return Array.isArray(arr) ? arr.filter((s) => typeof s === 'string' && s.trim()) : [];
+  } catch (e) { return []; }
+}
+function addCustomShop(name) {
+  const t = String(name || '').trim();
+  const key = t.replace(/\s+/g, '').toLowerCase();
+  if (!key || t.length > 15) return false; // 过长的不学，防止把整句话当店名收进去
+  if (SHOP_KW_COMPACT.some((x) => x.key === key)) return false; // 内置词库已有
+  const list = loadCustomShops();
+  if (list.some((s) => s.replace(/\s+/g, '').toLowerCase() === key)) return false;
+  list.push(t);
+  try {
+    localStorage.setItem(LS_CUSTOM_SHOPS, JSON.stringify(list));
+  } catch (e) { return false; } // 隐私模式等场景存不了，本次会话不影响使用
+  return true;
+}
+function removeCustomShop(name) {
+  const list = loadCustomShops().filter((s) => s !== name);
+  try {
+    localStorage.setItem(LS_CUSTOM_SHOPS, JSON.stringify(list));
+  } catch (e) {}
+}
+
+function splitShopDrink(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return { shop: '', coffee: '' };
+  const compact = text.replace(/\s+/g, ''); // 去空格保大小写，用于切分和取值
+  const lower = compact.toLowerCase();       // 长度与 compact 一致，用于匹配
+
+  // 剥口语开头："来一杯manner拿铁" → "manner拿铁"
+  let s = lower, start = 0, changed = true;
+  while (changed) {
+    changed = false;
+    for (const w of LEAD_WORDS) {
+      if (s.startsWith(w)) { s = s.slice(w.length); start += w.length; changed = true; }
+    }
+  }
+
+  // 1) 店名词库最长匹配（内置 + 自动学到的自定义）→ 店名填词条写法，其后为饮品名
+  const custom = loadCustomShops().map((k) => ({ name: k, key: k.replace(/\s+/g, '').toLowerCase() }));
+  let hit = -1, hitLen = 0, hitName = '';
+  for (const { name, key } of [...SHOP_KW_COMPACT, ...custom]) {
+    const i = s.indexOf(key);
+    if (i >= 0 && key.length > hitLen) { hit = i; hitLen = key.length; hitName = name; }
+  }
+  if (hit >= 0) {
+    const abs = start + hit;
+    return { shop: hitName, coffee: compact.slice(abs + hitLen) };
+  }
+
+  // 2) 词库没收录 → 第一个品类词处切分，店名保留用户原话
+  const m = DRINK_HINT.exec(s);
+  if (m && m.index > 0) {
+    const abs = start + m.index;
+    return { shop: compact.slice(start, abs), coffee: compact.slice(abs) };
+  }
+
+  // 3) 完全没头绪 → 全填饮品名，店名留空手动补
+  return { shop: '', coffee: compact.slice(start) || text };
+}
+
 const LS_LAST_BACKUP = 'coffee-last-backup';
 
 /* ============ 主题：默认跟随系统，设置页可固定为浅色/深色 ============ */
@@ -414,7 +507,17 @@ route('edit', async (params) => {
 
   const form = el(`<div class="form"></div>`);
   const hintSlot = el(`<div></div>`);
-  form.append(hintSlot);
+
+  // 快速输入：语音说一句 / 文本粘一句「店名+饮品名」，切分后分别填入
+  const importRow = el(`<div class="import-row"></div>`);
+  const voiceBtn = el(`<button class="quick-btn">🎤 语音输入</button>`);
+  const textBtn = el(`<button class="quick-btn">✂️ 文本切分</button>`);
+  voiceBtn.onclick = () => runVoice();
+  textBtn.onclick = () => runText();
+  if (Voice.supported) importRow.append(voiceBtn);
+  importRow.append(textBtn);
+
+  form.append(hintSlot, importRow);
 
   const catField = el(`
     <div class="field"><label>品类</label>
@@ -489,6 +592,62 @@ route('edit', async (params) => {
     coffeeInput.addEventListener('blur', check);
   }
 
+  // 语音说一句「店名+饮品名」，切分填入
+  async function runVoice() {
+    const overlay = showOverlay(`<div class="spinner"></div><div class="msg">请说出「店名 + 饮品名」<br><span style="font-size:13px;color:var(--text-soft)">例：manner 拿铁巴西喜拉多日晒</span></div>`);
+    try {
+      const text = await Voice.listen();
+      overlay.remove();
+      if (!text || !text.trim()) throw new Error('empty');
+      applySplit(text, `✓ 「${esc(text)}」已切分填入，请核对`);
+    } catch (e) {
+      overlay.remove();
+      const msg = e.message === 'not-allowed' ? '麦克风没授权，请在系统设置里允许'
+        : e.message === 'no-speech' ? '没听到声音，再试一次'
+        : '识别失败，手动填吧';
+      showOverlay(`
+        <div class="msg">${msg}</div>
+        <div class="row">
+          <button id="ov-retry">重说</button>
+          <button id="ov-manual" class="primary">手动填</button>
+        </div>`, (box, close) => {
+        box.querySelector('#ov-retry').onclick = () => { close(); runVoice(); };
+        box.querySelector('#ov-manual').onclick = close;
+      });
+    }
+  }
+
+  // 文本粘一句「店名+饮品名」，切分填入（语音不可用/没听清时的兜底）
+  function runText() {
+    showOverlay(`
+      <div class="msg">粘贴或输入「店名 + 饮品名」</div>
+      <input id="ov-text" type="text" placeholder="例：manner 拿铁巴西喜拉多日晒" />
+      <div class="row">
+        <button id="ov-cancel">取消</button>
+        <button id="ov-ok" class="primary">填入</button>
+      </div>`, (box, close) => {
+      const input = box.querySelector('#ov-text');
+      setTimeout(() => input.focus(), 0);
+      const apply = () => {
+        const t = input.value;
+        close();
+        applySplit(t, '✓ 已切分填入，请核对');
+      };
+      box.querySelector('#ov-cancel').onclick = close;
+      box.querySelector('#ov-ok').onclick = apply;
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') apply(); });
+    });
+  }
+
+  function applySplit(text, okMsg) {
+    const g = splitShopDrink(text);
+    if (g.shop) shopInput.value = g.shop;
+    if (g.coffee) coffeeInput.value = g.coffee;
+    validate();
+    hintSlot.innerHTML = '';
+    hintSlot.append(el(`<div class="hint ok">${okMsg}</div>`));
+  }
+
   save.onclick = async () => {
     rec.shop = shopInput.value.trim();
     rec.coffee = coffeeInput.value.trim();
@@ -502,6 +661,7 @@ route('edit', async (params) => {
       toast('保存失败：存储不可用或空间不足');
       return;
     }
+    addCustomShop(rec.shop); // 词库里没有的店名自动收编，下次切分直接认识
     toast('已保存');
     // 回到进入编辑页之前的地方（新记录 → 列表；编辑 → 详情），不往历史栈里压新条目
     goBack();
@@ -586,6 +746,26 @@ route('settings', async () => {
     themeTabs.append(b);
   }
   s.append(themeTabs);
+
+  // 自定义店名（保存记录时自动收集，点一下删除）
+  s.append(el(`<h3>自定义店名</h3>`));
+  const customShops = loadCustomShops();
+  if (customShops.length === 0) {
+    s.append(el(`<div class="note">暂无。保存记录时，词库里没有的店名会自动加到这里。</div>`));
+  } else {
+    const chipWrap = el(`<div class="custom-shops"></div>`);
+    for (const name of customShops) {
+      const chip = el(`<button class="custom-chip">${esc(name)} ✕</button>`);
+      chip.onclick = () => {
+        removeCustomShop(name);
+        toast('已删除');
+        setTimeout(render, 300);
+      };
+      chipWrap.append(chip);
+    }
+    s.append(chipWrap);
+    s.append(el(`<div class="note">点击可删除。快速输入时会把它们当店名认。</div>`));
+  }
 
   // 备份
   s.append(el(`<h3>数据备份</h3>`));
@@ -672,3 +852,23 @@ function showOverlay(innerHTML, setup) {
   if (setup) setup(box, close);
   return overlay;
 }
+
+/* ============ 语音识别（Web Speech API；切分规则见 splitShopDrink） ============ */
+const Voice = (() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  function listen() {
+    return new Promise((resolve, reject) => {
+      if (!SR) return reject(new Error('unsupported'));
+      const rec = new SR();
+      rec.lang = 'zh-CN';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      let done = false;
+      rec.onresult = (e) => { done = true; resolve(e.results[0][0].transcript || ''); };
+      rec.onerror = (e) => { if (!done) reject(new Error(e.error || 'error')); };
+      rec.onend = () => { if (!done) reject(new Error('no-speech')); };
+      rec.start();
+    });
+  }
+  return { supported: !!SR, listen };
+})();
