@@ -388,6 +388,29 @@ html, body {
 }
 .custom-chip:active { background: var(--line); }
 
+/* toast 上的动作按钮（如「撤销」）；toast 背景固定深棕，按钮色固定即可，两主题下都可读 */
+.toast-act {
+  margin-left: 12px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #ffd98a;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 自定义店名折叠 */
+.chip-hidden { display: none; }
+.chip-toggle {
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  color: var(--brown-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+
 /* 设置页底部版本信息（只用变量，深色自动跟随） */
 .ver-line {
   text-align: center;

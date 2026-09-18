@@ -128,10 +128,15 @@ function toLocalInput(ts) {
 }
 function fromLocalInput(v) { return new Date(v).getTime(); }
 
-function toast(msg) {
-  const t = el(`<div class="toast">${esc(msg)}</div>`);
+function toast(msg, opts) {
+  // opts 可选：{ action: '撤销', onAction: fn, duration: ms }；不传则维持原纯文本行为
+  const o = opts || {};
+  const t = el(`<div class="toast">${esc(msg)}${o.action ? `<button class="toast-act">${esc(o.action)}</button>` : ''}</div>`);
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 1800);
+  if (o.action) {
+    t.querySelector('.toast-act').onclick = () => { t.remove(); if (o.onAction) o.onAction(); };
+  }
+  setTimeout(() => t.remove(), o.duration || 1800);
 }
 
 const SWIPE_W = 72; // 删除按钮露出宽度
@@ -472,8 +477,23 @@ route('home', async () => {
           return;
         }
         records = records.filter((x) => x.id !== r.id);
-        toast('已删除');
         renderList();
+        // 给一次反悔机会：5 秒内可撤销。r 是原对象，put 回去即完整恢复（时间戳原样保留）
+        toast('已删除', {
+          action: '撤销',
+          duration: 5000,
+          onAction: async () => {
+            try {
+              await DB.put(r);
+            } catch (err) {
+              toast('恢复失败');
+              return;
+            }
+            records = await DB.all(); // 重读一遍，保证排序和当前筛选状态一致
+            renderList();
+            toast('已恢复');
+          },
+        });
       };
       content.append(wrap);
     }
@@ -735,7 +755,22 @@ route('detail', async (params) => {
           toast('删除失败');
           return;
         }
-        close(); toast('已删除'); goBack();
+        close(); goBack();
+        // toast 挂在 body 上，goBack 换页不影响；撤销后重渲染当前页（一般已回到列表，重读 DB 即复活）
+        toast('已删除', {
+          action: '撤销',
+          duration: 5000,
+          onAction: async () => {
+            try {
+              await DB.put(rec);
+            } catch (err) {
+              toast('恢复失败');
+              return;
+            }
+            render();
+            toast('已恢复');
+          },
+        });
       };
     });
   };
@@ -782,26 +817,6 @@ route('settings', async () => {
     themeTabs.append(b);
   }
   s.append(themeTabs);
-
-  // 自定义店名（保存记录时自动收集，点一下删除）
-  s.append(el(`<h3>自定义店名</h3>`));
-  const customShops = loadCustomShops();
-  if (customShops.length === 0) {
-    s.append(el(`<div class="note">暂无。保存记录时，词库里没有的店名会自动加到这里。</div>`));
-  } else {
-    const chipWrap = el(`<div class="custom-shops"></div>`);
-    for (const name of customShops) {
-      const chip = el(`<button class="custom-chip">${esc(name)} ✕</button>`);
-      chip.onclick = () => {
-        removeCustomShop(name);
-        toast('已删除');
-        setTimeout(render, 300);
-      };
-      chipWrap.append(chip);
-    }
-    s.append(chipWrap);
-    s.append(el(`<div class="note">点击可删除。快速输入时会把它们当店名认。</div>`));
-  }
 
   // 备份
   s.append(el(`<h3>数据备份</h3>`));
@@ -872,6 +887,42 @@ route('settings', async () => {
     const catLine = catCount.map((x) => `${x.label} ${x.n}`).join(' · ');
     s.append(el(`<div class="stat">共 ${records.length} 杯 · 平均 ${avg}★${top ? ` · 最常喝 ${esc(top[0])}` : ''}</div>`));
     s.append(el(`<div class="stat" style="margin-top:8px">${catLine}</div>`));
+  }
+
+  // 自定义店名（保存记录时自动收集，点一下删除；超过 10 个默认折叠）
+  s.append(el(`<h3>自定义店名</h3>`));
+  const customShops = loadCustomShops();
+  if (customShops.length === 0) {
+    s.append(el(`<div class="note">暂无。保存记录时，词库里没有的店名会自动加到这里。</div>`));
+  } else {
+    const LIMIT = 10;
+    const chipWrap = el(`<div class="custom-shops"></div>`);
+    const chips = [];
+    for (const name of customShops) {
+      const chip = el(`<button class="custom-chip">${esc(name)} ✕</button>`);
+      chip.onclick = () => {
+        removeCustomShop(name);
+        toast('已删除');
+        setTimeout(render, 300);
+      };
+      chipWrap.append(chip);
+      chips.push(chip);
+    }
+    if (customShops.length > LIMIT) {
+      // 默认只展示前 10 个；折叠状态不持久化，每次进设置页默认收起
+      const hidden = chips.slice(LIMIT);
+      hidden.forEach((c) => c.classList.add('chip-hidden'));
+      const toggle = el(`<button class="chip-toggle">展开全部 ${customShops.length} 个 ▾</button>`);
+      let open = false;
+      toggle.onclick = () => {
+        open = !open;
+        hidden.forEach((c) => c.classList.toggle('chip-hidden', !open));
+        toggle.textContent = open ? '收起 ▴' : `展开全部 ${customShops.length} 个 ▾`;
+      };
+      chipWrap.append(toggle);
+    }
+    s.append(chipWrap);
+    s.append(el(`<div class="note">点击可删除。快速输入时会把它们当店名认。</div>`));
   }
 
   // 版本信息：缓存名即版本号，时间为该版本第一次在本设备运行的时间
