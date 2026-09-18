@@ -874,6 +874,21 @@ route('settings', async () => {
     s.append(el(`<div class="stat" style="margin-top:8px">${catLine}</div>`));
   }
 
+  // 版本信息：缓存名即版本号，时间为该版本第一次在本设备运行的时间
+  const verLine = el(`<div class="ver-line">版本读取中…</div>`);
+  s.append(verLine);
+  currentVersionKey().then((cur) => {
+    if (!cur) { verLine.textContent = '尚未安装离线缓存'; return; }
+    const seen = Number(localStorage.getItem('coffee-seen-' + cur) || 0);
+    let when = '';
+    if (seen) {
+      const d = new Date(seen);
+      const p = (n) => String(n).padStart(2, '0');
+      when = ` · ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())} 生效`;
+    }
+    verLine.textContent = `版本 ${cur.slice(7)}${when}`;
+  }).catch(() => { verLine.textContent = ''; });
+
   page.append(s);
   app.innerHTML = '';
   app.append(page);
@@ -932,4 +947,29 @@ try {
     sessionStorage.removeItem('coffee-updated');
     setTimeout(() => toast('✨ 已更新到最新版本'), 600); // 等首屏渲染一拍再弹
   }
+} catch (e) {}
+
+/* ============ 版本与生效时间（设置页展示） ============ */
+// 版本号直接取自 SW 缓存名（唯一事实来源，避免两处版本号手动同步）；
+// 某版本第一次在本设备运行时记下时间，作为该版本的「生效时间」。
+// 即使没看到更新 toast（比如更新发生在两次打开之间），这里也能查到当前跑的是哪版。
+function currentVersionKey() {
+  return caches.keys().then((keys) => {
+    const vers = keys.filter((k) => /^coffee-v\d+$/.test(k));
+    if (!vers.length) return null;
+    return vers.sort((a, b) => parseInt(a.slice(8), 10) - parseInt(b.slice(8), 10)).pop();
+  });
+}
+try {
+  // 首次安装时缓存可能还没建好（SW 尚在 install），延迟重试一次兜底
+  currentVersionKey().then((cur) => cur || new Promise((r) => setTimeout(r, 2500)).then(currentVersionKey)).then((cur) => {
+    if (!cur) return;
+    // 只保留当前版本的记录，旧版本的顺手清掉
+    for (const k of Object.keys(localStorage)) {
+      if (k.indexOf('coffee-seen-') === 0 && k !== 'coffee-seen-' + cur) localStorage.removeItem(k);
+    }
+    if (localStorage.getItem('coffee-seen-' + cur) == null) {
+      localStorage.setItem('coffee-seen-' + cur, String(Date.now()));
+    }
+  }).catch(() => {});
 } catch (e) {}

@@ -388,6 +388,14 @@ html, body {
 }
 .custom-chip:active { background: var(--line); }
 
+/* 设置页底部版本信息（只用变量，深色自动跟随） */
+.ver-line {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-soft);
+  padding: 10px 0 4px;
+}
+
 /* ============ 深色模式 ============ */
 /* 由 <html data-theme="dark"> 触发（跟随系统或手动固定，逻辑见 app.js / index.html） */
 :root[data-theme="dark"] {
