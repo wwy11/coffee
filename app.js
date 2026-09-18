@@ -924,3 +924,12 @@ const Voice = (() => {
   }
   return { supported: !!SR, listen };
 })();
+
+/* ============ SW 更新完成后的提示 ============ */
+// index.html 在「检测到新 SW 并 reload」前写入标记，这里弹一次 toast（首次安装不会弹）
+try {
+  if (sessionStorage.getItem('coffee-updated')) {
+    sessionStorage.removeItem('coffee-updated');
+    setTimeout(() => toast('✨ 已更新到最新版本'), 600); // 等首屏渲染一拍再弹
+  }
+} catch (e) {}

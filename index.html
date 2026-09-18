@@ -34,6 +34,8 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
+          // 页面加载时是否已被旧 SW 控制：没有则本次是首次安装，之后的接管不算"更新"
+          const hadController = !!navigator.serviceWorker.controller;
           const reg = await navigator.serviceWorker.register('sw.js');
           // 每次打开主动查一次更新
           reg.update();
@@ -49,8 +51,11 @@
           });
           let refreshed = false;
           navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!hadController) return; // 首次安装的接管不算更新，也不必刷新
             if (refreshed) return;
             refreshed = true;
+            // reload 会丢掉页面状态，靠 sessionStorage 把"更新过"这件事带进新页面
+            try { sessionStorage.setItem('coffee-updated', '1'); } catch (e) {}
             location.reload();
           });
         } catch (e) {}
