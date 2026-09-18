@@ -1,18 +1,20 @@
 :root {
-  --bg: #f7f2ee;
-  --surface: #ffffff;
-  --brown: #5b3a29;
-  --brown-soft: #8a6b57;
-  --text: #2b2320;
-  --text-soft: #8c8079;
-  --line: #ece3db;
+  --bg: #dcedc1;
+  --surface: #f6f5f1;
+  --brown: #88c1a3;
+  --brown-soft: #6fa98a;
+  --mint: #a8e6cf;
+  --text: #2c322b;
+  --text-soft: #7a857a;
+  --line: #d3e2c2;
   --star: #e8a33d;
-  --star-off: #d9cfc6;
+  --star-off: #c5d3bb;
   --danger: #c0483b;
   --ok: #4f8a5b;
   --warn-bg: #fdf3e2;
   --warn-text: #9a6b13;
-  --shadow: 0 2px 12px rgba(91, 58, 41, .08);
+  --radius: 18px;
+  --shadow: 0 4px 16px rgba(44, 50, 43, .08);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -120,9 +122,9 @@ html, body {
 /* 列表/详情里的品类小标签 */
 .cat-chip {
   display: inline-block;
-  background: #efe6de;
-  color: var(--brown-soft);
-  border-radius: 6px;
+  background: var(--mint);
+  color: #2f5e48;
+  border-radius: 8px;
   padding: 1px 7px;
   font-size: 12px;
   margin-right: 6px;
@@ -154,7 +156,7 @@ html, body {
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
-.list-item:active { background: #f0e8e1; }
+.list-item:active { background: #cfe3b8; }
 .list-item .stars { font-size: 15px; letter-spacing: 2px; }
 .list-item .shop { font-weight: 600; font-size: 16px; margin-left: 8px; }
 .list-item .sub { color: var(--text-soft); font-size: 13px; margin-top: 4px; }
@@ -213,7 +215,7 @@ html, body {
   font-size: 15px;
   cursor: pointer;
 }
-.ocr-btn:active { background: #f0e8e1; }
+.ocr-btn:active { background: #cfe3b8; }
 .field { margin-bottom: 16px; }
 .field label {
   display: block;
@@ -225,7 +227,7 @@ html, body {
 .field textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 12px;
   font-size: 16px;
   background: var(--surface);
@@ -247,7 +249,7 @@ html, body {
   justify-content: space-between;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--surface);
 }
 .time-row input[type="datetime-local"] {
@@ -257,7 +259,7 @@ html, body {
 
 /* 提示条 */
 .hint {
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 10px 12px;
   font-size: 14px;
   margin-bottom: 16px;
@@ -272,8 +274,8 @@ html, body {
 .detail .d-coffee { font-size: 17px; color: var(--brown-soft); margin-top: 4px; }
 .detail .d-note {
   font-size: 16px; margin-top: 20px; line-height: 1.6;
-  background: var(--surface); border-radius: 12px; padding: 16px;
-  text-align: left; white-space: pre-wrap;
+  background: var(--surface); border-radius: var(--radius); padding: 16px;
+  text-align: left; white-space: pre-wrap; box-shadow: var(--shadow);
 }
 .detail .d-time { color: var(--text-soft); font-size: 13px; margin-top: 20px; }
 .detail .d-photo { margin-top: 20px; }
@@ -284,12 +286,12 @@ html, body {
 .settings h3 { font-size: 14px; color: var(--text-soft); margin: 20px 0 8px; font-weight: 600; }
 .settings .bigbtn {
   width: 100%; border: 1px solid var(--line); background: var(--surface);
-  border-radius: 12px; padding: 14px; font-size: 16px; color: var(--text);
-  cursor: pointer; margin-bottom: 10px; text-align: left;
+  border-radius: var(--radius); padding: 14px; font-size: 16px; color: var(--text);
+  cursor: pointer; margin-bottom: 10px; text-align: left; box-shadow: var(--shadow);
 }
-.settings .bigbtn:active { background: #f0e8e1; }
+.settings .bigbtn:active { background: #cfe3b8; }
 .settings .stat { background: var(--surface); border: 1px solid var(--line);
-  border-radius: 12px; padding: 14px; font-size: 15px; }
+  border-radius: var(--radius); padding: 14px; font-size: 15px; box-shadow: var(--shadow); }
 .settings .note { color: var(--text-soft); font-size: 13px; margin-top: 6px; }
 .settings .note.warn { color: var(--warn-text); }
 

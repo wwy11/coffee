@@ -164,7 +164,7 @@ route('home', async () => {
     setTimeout(() => input.focus(), 0);
   } else {
     topbar.append(
-      el(`<div class="title">🥤 我的饮品</div>`),
+      el(`<div class="title">🥤 饮记</div>`),
     );
     const search = el(`<button class="iconbtn" aria-label="搜索">🔍</button>`);
     search.onclick = () => { state.searchOpen = true; render(); };
