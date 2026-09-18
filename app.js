@@ -125,6 +125,53 @@ function toast(msg) {
   setTimeout(() => t.remove(), 1800);
 }
 
+const SWIPE_W = 72; // 删除按钮露出宽度
+function closeSwipe(wrap) {
+  wrap.classList.remove('open');
+  const body = wrap.querySelector('.item-body');
+  if (body) body.style.transform = '';
+}
+function attachSwipe(wrap, body) {
+  let x0 = 0, y0 = 0, dx = 0, dragging = false, decided = false, horiz = false;
+  const onStart = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    x0 = t.clientX; y0 = t.clientY; dx = 0;
+    dragging = true; decided = false; horiz = false;
+  };
+  const onMove = (e) => {
+    if (!dragging) return;
+    const t = e.touches ? e.touches[0] : e;
+    const mx = t.clientX - x0, my = t.clientY - y0;
+    if (!decided) {
+      if (Math.abs(mx) < 6 && Math.abs(my) < 6) return;
+      decided = true;
+      horiz = Math.abs(mx) > Math.abs(my);
+    }
+    if (!horiz) return;
+    if (e.cancelable) e.preventDefault();
+    const base = wrap.classList.contains('open') ? -SWIPE_W : 0;
+    dx = Math.max(-SWIPE_W, Math.min(0, base + mx));
+    body.style.transform = `translateX(${dx}px)`;
+  };
+  const onEnd = () => {
+    if (!dragging) return;
+    dragging = false;
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onEnd);
+    if (!horiz) return;
+    if (dx < -SWIPE_W / 2) { wrap.classList.add('open'); body.style.transform = `translateX(${-SWIPE_W}px)`; }
+    else closeSwipe(wrap);
+  };
+  body.addEventListener('touchstart', onStart, { passive: true });
+  body.addEventListener('touchmove', onMove, { passive: false });
+  body.addEventListener('touchend', onEnd);
+  body.addEventListener('mousedown', (e) => {
+    onStart(e);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+  });
+}
+
 const LS_LAST_BACKUP = 'coffee-last-backup';
 
 /* ============ 路由 ============ */
@@ -147,7 +194,7 @@ window.addEventListener('DOMContentLoaded', render);
 
 /* ============ 首页：列表 + 搜索 + 品类筛选 ============ */
 route('home', async () => {
-  const records = await DB.all();
+  let records = await DB.all();
 
   const page = el(`<div></div>`);
 
@@ -198,7 +245,7 @@ route('home', async () => {
   // 星级筛选条（默认隐藏）
   if (state.starOpen) {
     const starBar = el(`<div class="star-tabs"></div>`);
-    const starOptions = [{ v: 0, label: '全部' }, { v: 5, label: '5★' }, { v: 4, label: '4★+' }, { v: 3, label: '3★+' }, { v: 2, label: '2★+' }, { v: 1, label: '1★+' }];
+    const starOptions = [{ v: 0, label: '全部' }, { v: 5, label: '5★' }, { v: 4, label: '4★+' }, { v: 3, label: '3★+' }];
     const starEls = {};
     for (const o of starOptions) {
       const t = el(`<button class="star-tab${state.star === o.v ? ' on' : ''}">${o.label}</button>`);
@@ -239,13 +286,26 @@ route('home', async () => {
       return;
     }
     for (const r of list) {
-      const item = el(`
-        <button class="list-item">
-          <div><span class="stars">${stars(r.rating)}</span><span class="shop">${esc(r.shop || '未命名')}</span></div>
-          <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${esc(r.coffee || '')}${r.coffee ? ' · ' : ' '}${relTime(r.drankAt)}</div>
-        </button>`);
-      item.onclick = () => go('detail', { id: r.id });
-      content.append(item);
+      const wrap = el(`
+        <div class="item-wrap">
+          <div class="item-body">
+            <div><span class="stars">${stars(r.rating)}</span><span class="shop">${esc(r.shop || '未命名')}</span></div>
+            <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${esc(r.coffee || '')}${r.coffee ? ' · ' : ' '}${relTime(r.drankAt)}</div>
+          </div>
+          <button class="item-del" aria-label="删除">🗑</button>
+        </div>`);
+      const body = wrap.querySelector('.item-body');
+      const del = wrap.querySelector('.item-del');
+      attachSwipe(wrap, body);
+      body.onclick = () => { if (wrap.classList.contains('open')) { closeSwipe(wrap); return; } go('detail', { id: r.id }); };
+      del.onclick = async (e) => {
+        e.stopPropagation();
+        await DB.remove(r.id);
+        records = records.filter((x) => x.id !== r.id);
+        toast('已删除');
+        renderList();
+      };
+      content.append(wrap);
     }
   }
   renderList();

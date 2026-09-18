@@ -1,12 +1,12 @@
 :root {
-  --bg: #dcedc1;
+  --bg: #fbfcfa;
   --surface: #f6f5f1;
   --brown: #88c1a3;
   --brown-soft: #6fa98a;
   --mint: #a8e6cf;
   --text: #2c322b;
   --text-soft: #7a857a;
-  --line: #d3e2c2;
+  --line: #e6ebe3;
   --star: #e8a33d;
   --star-off: #c5d3bb;
   --danger: #c0483b;
@@ -101,7 +101,7 @@ html, body {
 .star-tabs {
   display: flex;
   gap: 8px;
-  padding: 0 16px 10px;
+  padding: 8px 16px 10px;
   overflow-x: auto;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
@@ -146,20 +146,40 @@ html, body {
 .detail .d-cat { margin-top: 10px; }
 
 /* 列表 */
-.list-item {
+.item-wrap {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+}
+.item-body {
   display: block;
   width: 100%;
   text-align: left;
-  border: none;
-  background: transparent;
+  background: var(--bg);
   padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
   cursor: pointer;
+  position: relative;
+  z-index: 1;
+  transition: transform .2s ease;
+  touch-action: pan-y;
 }
-.list-item:active { background: #cfe3b8; }
-.list-item .stars { font-size: 15px; letter-spacing: 2px; }
-.list-item .shop { font-weight: 600; font-size: 16px; margin-left: 8px; }
-.list-item .sub { color: var(--text-soft); font-size: 13px; margin-top: 4px; }
+.item-wrap:active .item-body { background: #eef3ea; }
+.item-body .stars { font-size: 15px; letter-spacing: 2px; }
+.item-body .shop { font-weight: 600; font-size: 16px; margin-left: 8px; }
+.item-body .sub { color: var(--text-soft); font-size: 13px; margin-top: 4px; }
+.item-del {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 72px;
+  height: 100%;
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  z-index: 0;
+}
 
 /* 空状态 */
 .empty {
