@@ -202,8 +202,9 @@ html, body {
 
 /* 表单 */
 .form { padding: 8px 16px; }
+.import-row { display: flex; gap: 10px; margin: 8px 0 16px; }
 .ocr-btn {
-  width: 100%;
+  flex: 1;
   border: 1px dashed var(--brown-soft);
   background: var(--surface);
   color: var(--brown);
@@ -211,7 +212,6 @@ html, body {
   padding: 14px;
   font-size: 15px;
   cursor: pointer;
-  margin: 8px 0 16px;
 }
 .ocr-btn:active { background: #f0e8e1; }
 .field { margin-bottom: 16px; }
