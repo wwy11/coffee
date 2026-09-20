@@ -385,7 +385,7 @@ applyTheme();
 const app = document.getElementById('app');
 const routes = {};
 function route(name, fn) { routes[name] = fn; }
-let state = { search: '', cat: 'all', star: 0, starOpen: false };
+let state = { search: '', cat: 'all' };
 
 // 应用内跳转栈：go() 压入出发页，goBack() 消费。
 // 只在应用内跳转时有值，所以"刷新后/直接打开深链"时它是空的，
@@ -479,32 +479,6 @@ route('home', async () => {
   }
   page.append(tabs);
 
-  // 星级筛选入口单独占一行：品类加到 5 项后，和它们挤在同一行时会被挤出可视区
-  const starRow = el(`<div class="star-row"></div>`);
-  const starToggle = el(`<button class="cat-tab star-toggle${state.starOpen || state.star ? ' on' : ''}" aria-label="按星级筛选">☆ 星级</button>`);
-  starToggle.onclick = () => { state.starOpen = !state.starOpen; render(); };
-  starRow.append(starToggle);
-  page.append(starRow);
-
-  // 星级筛选条（默认隐藏）
-  if (state.starOpen) {
-    const starBar = el(`<div class="star-tabs"></div>`);
-    const starOptions = [{ v: 0, label: '全部' }, { v: 5, label: '5★' }, { v: 4, label: '4★+' }, { v: 3, label: '3★+' }];
-    const starEls = {};
-    for (const o of starOptions) {
-      const t = el(`<button class="star-tab${state.star === o.v ? ' on' : ''}">${o.label}</button>`);
-      t.onclick = () => {
-        state.star = o.v;
-        Object.values(starEls).forEach((x) => x.classList.remove('on'));
-        t.classList.add('on');
-        renderList();
-      };
-      starEls[o.v] = t;
-      starBar.append(t);
-    }
-    page.append(starBar);
-  }
-
   const content = el(`<div class="content"></div>`);
   page.append(content);
 
@@ -513,8 +487,6 @@ route('home', async () => {
     const q2 = state.search.trim().toLowerCase();
     let list = records;
     if (state.cat !== 'all') list = list.filter((r) => r.category === state.cat);
-    if (state.star === 5) list = list.filter((r) => r.rating === 5);
-    else if (state.star > 0) list = list.filter((r) => r.rating >= state.star);
     if (q2) list = list.filter((r) => (r.shop + ' ' + r.coffee).toLowerCase().includes(q2));
     if (records.length === 0) {
       content.append(el(`
