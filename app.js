@@ -1,9 +1,11 @@
 'use strict';
 
 /* ============ 品类 ============ */
+// 数组顺序 = 展示顺序。只新增、不改已有 id（老数据靠 normCat 兜底，未知值一律归咖啡）
 const CATEGORIES = [
   { id: 'coffee', label: '咖啡' },
   { id: 'milktea', label: '奶茶' },
+  { id: 'fruittea', label: '果茶' },
   { id: 'juice', label: '果汁' },
   { id: 'other', label: '其他' },
 ];
@@ -279,6 +281,73 @@ function splitShopDrink(raw) {
   return { shop: '', coffee: compact.slice(start) || text };
 }
 
+/* ============ 输入自动补全 ============ */
+// 词池：历史记录里出现过的店名/饮品名，按出现次数降序、同次数按最近一次时间降序
+function buildPool(records, pick) {
+  const m = new Map();
+  for (const r of records) {
+    const v = String(pick(r) || '').trim();
+    if (!v) continue;
+    const cur = m.get(v);
+    const t = Number(r.drankAt) || 0;
+    if (cur) { cur.n++; if (t > cur.t) cur.t = t; }
+    else m.set(v, { v, n: 1, t });
+  }
+  return [...m.values()].sort((a, b) => b.n - a.n || b.t - a.t).map((x) => x.v);
+}
+
+// 轻量下拉补全。原生 datalist 在 iOS 上表现不稳（有时不弹、样式不可控），自己画一个。
+// rank 可选：给候选重新排序（用在「饮品名」上，让当前店喝过的排前面）
+function attachAC(field, input, pool, rank) {
+  const list = el(`<div class="ac-list" hidden></div>`);
+  field.append(list);
+  let items = [];
+  const hide = () => { list.hidden = true; list.innerHTML = ''; items = []; };
+  const show = () => {
+    if (!pool.length) { hide(); return; }
+    const q = input.value.trim().toLowerCase();
+    const src = rank ? rank(pool) : pool;
+    const hit = q ? src.filter((v) => v.toLowerCase().includes(q)) : src;
+    const top = hit.slice(0, 6);
+    // 只有一条候选且和已输入的完全一样 → 没必要占地方
+    if (!top.length || (top.length === 1 && top[0] === input.value.trim())) { hide(); return; }
+    items = top;
+    list.innerHTML = top.map((v, i) => `<button type="button" class="ac-item" data-i="${i}">${esc(v)}</button>`).join('');
+    list.hidden = false;
+    list.querySelectorAll('.ac-item').forEach((b) => {
+      // pointerdown：比 click 早，preventDefault 能挡住 input 失焦（否则 iOS 键盘会收起来）
+      b.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        input.value = items[Number(b.dataset.i)];
+        hide();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
+  };
+  input.addEventListener('input', show);
+  input.addEventListener('focus', show);
+  input.addEventListener('blur', () => setTimeout(hide, 150)); // 留出点击补全项的时间
+  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(); });
+  return hide;
+}
+
+/* ============ 统计：品类累计杯数 / 同店同款第几次 ============ */
+// 序号按时间升序实时算（最早的算第 1 次），所以删掉中间某条后序号会自然重排——这是刻意的，
+// 保证序号永远和列表里看到的顺序对得上，不往记录里固化序号（导入/删除会让固化值失真）。
+function buildStats(records) {
+  const order = [...records].sort((a, b) =>
+    (a.drankAt - b.drankAt) || ((a.createdAt || 0) - (b.createdAt || 0)) || String(a.id).localeCompare(String(b.id)));
+  const catN = {}, itemN = {}, byId = {};
+  const keyOf = (r) => String(r.shop || '').trim().toLowerCase() + '\u0000' + String(r.coffee || '').trim().toLowerCase();
+  for (const r of order) {
+    catN[r.category] = (catN[r.category] || 0) + 1;
+    const k = keyOf(r);
+    itemN[k] = (itemN[k] || 0) + 1;
+    byId[r.id] = { catSeq: catN[r.category], itemSeq: itemN[k] };
+  }
+  return { byId, catTotal: catN };
+}
+
 const LS_LAST_BACKUP = 'coffee-last-backup';
 
 /* ============ 主题：默认跟随系统，设置页可固定为浅色/深色 ============ */
@@ -365,6 +434,8 @@ window.addEventListener('DOMContentLoaded', render);
 /* ============ 首页：列表 + 搜索 + 品类筛选 ============ */
 route('home', async () => {
   let records = await DB.all();
+  let stats = buildStats(records); // 序号只跟全量记录有关，筛选不改变它，所以整页算一次
+  const refreshStats = () => { stats = buildStats(records); };
 
   const page = el(`<div></div>`);
 
@@ -406,11 +477,14 @@ route('home', async () => {
     tabEls[c.id] = t;
     tabs.append(t);
   }
-  // 星级筛选展开按钮（默认隐藏筛选条，点这里展开）
+  page.append(tabs);
+
+  // 星级筛选入口单独占一行：品类加到 5 项后，和它们挤在同一行时会被挤出可视区
+  const starRow = el(`<div class="star-row"></div>`);
   const starToggle = el(`<button class="cat-tab star-toggle${state.starOpen || state.star ? ' on' : ''}" aria-label="按星级筛选">☆ 星级</button>`);
   starToggle.onclick = () => { state.starOpen = !state.starOpen; render(); };
-  tabs.append(starToggle);
-  page.append(tabs);
+  starRow.append(starToggle);
+  page.append(starRow);
 
   // 星级筛选条（默认隐藏）
   if (state.starOpen) {
@@ -456,11 +530,14 @@ route('home', async () => {
       return;
     }
     for (const r of list) {
+      const st = stats.byId[r.id] || {};
+      // 「第 N 次」是同一家店的同一款——换店就是新的第 1 次；缺店名或饮品名时不显示，免得出现孤零零一个序号
+      const seq = (r.shop && r.coffee && st.itemSeq) ? `第 ${st.itemSeq} 次 · ` : '';
       const wrap = el(`
         <div class="item-wrap">
           <div class="item-body">
             <div><span class="stars">${stars(r.rating)}</span><span class="shop">${esc(r.shop || '未命名')}</span></div>
-            <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${esc(r.coffee || '')}${r.coffee ? ' · ' : ' '}${relTime(r.drankAt)}</div>
+            <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${esc(r.coffee || '')}${r.coffee ? ' · ' : ' '}${seq}${relTime(r.drankAt)}</div>
           </div>
           <button class="item-del" aria-label="删除">🗑</button>
         </div>`);
@@ -477,6 +554,7 @@ route('home', async () => {
           return;
         }
         records = records.filter((x) => x.id !== r.id);
+        refreshStats(); // 序号实时算，删一条会影响它后面的「第几次」
         renderList();
         // 给一次反悔机会：5 秒内可撤销。r 是原对象，put 回去即完整恢复（时间戳原样保留）
         toast('已删除', {
@@ -490,6 +568,7 @@ route('home', async () => {
               return;
             }
             records = await DB.all(); // 重读一遍，保证排序和当前筛选状态一致
+            refreshStats();
             renderList();
             toast('已恢复');
           },
@@ -515,6 +594,12 @@ route('edit', async (params) => {
   const editing = params.id ? await DB.get(params.id) : null;
   const rec = editing || { id: uid(), category: 'coffee', shop: '', coffee: '', rating: 0, note: '', drankAt: Date.now(), photo: null };
   rec.category = normCat(rec.category);
+
+  // 自动补全词池：历史记录里的店名 / 饮品名。读取失败就退化成没有补全，不影响填表
+  let history = [];
+  try { history = await DB.all(); } catch (e) {}
+  const shopPool = buildPool(history, (r) => r.shop);
+  const drinkPool = buildPool(history, (r) => r.coffee);
 
   const page = el(`<div></div>`);
   const topbar = el(`<div class="topbar"></div>`);
@@ -579,6 +664,15 @@ route('edit', async (params) => {
   const timeInput = timeField.querySelector('input');
   const starEls = [...ratingField.querySelectorAll('.star')];
 
+  // 自动补全：店名用历史店名；饮品名优先推荐「当前店喝过的」，其次是其他店的
+  attachAC(shopField, shopInput, shopPool);
+  attachAC(coffeeField, coffeeInput, drinkPool, (pool) => {
+    const s = shopInput.value.trim();
+    if (!s) return pool;
+    const seen = new Set(history.filter((r) => String(r.shop || '').trim() === s).map((r) => String(r.coffee || '').trim()));
+    return [...pool].sort((a, b) => (seen.has(b) ? 1 : 0) - (seen.has(a) ? 1 : 0));
+  });
+
   function paintStars() {
     starEls.forEach((s) => s.classList.toggle('on', Number(s.dataset.v) <= rec.rating));
   }
@@ -605,7 +699,8 @@ route('edit', async (params) => {
       const all = await DB.all();
       const dup = all.find((r) => r.shop.trim() === s && r.coffee.trim() === c && s && c);
       if (dup) {
-        hintSlot.append(el(`<div class="hint warn">⚠ 你在「${relTime(dup.drankAt)}」喝过 ${esc(s)} ${esc(c)}，当时 ${stars(dup.rating)}</div>`));
+        // 只是提示历史参考：同名饮品在不同店表现不同，重复记录是允许的，各自评分互不影响
+        hintSlot.append(el(`<div class="hint warn">⚠ ${relTime(dup.drankAt)}也喝过 ${esc(s)} ${esc(c)}（当时 ${stars(dup.rating)}）· 可以重复记录</div>`));
       }
     };
     shopInput.addEventListener('blur', check);
@@ -777,11 +872,21 @@ route('detail', async (params) => {
   topbar.append(back, spacer, editBtn, delBtn);
   page.append(topbar);
 
+  // 统计行：第几杯该品类 + 这款在这家店第几次（口径＝同店同款；换店从第 1 次重新数）
+  let statsLine = '';
+  try {
+    const st = buildStats(await DB.all()).byId[rec.id] || {};
+    const bits = [`${CAT_LABEL[rec.category]}第 ${st.catSeq || 1} 杯`];
+    if (rec.shop && rec.coffee && st.itemSeq) bits.push(`这款在本店第 ${st.itemSeq} 次`);
+    statsLine = bits.join(' · ');
+  } catch (e) {}
+
   const detail = el(`
     <div class="detail">
       <div class="d-stars">${stars(rec.rating)}</div>
       <div class="d-shop">${esc(rec.shop || '未命名')}</div>
       <div class="d-cat"><span class="cat-chip">${CAT_LABEL[rec.category]}</span></div>
+      ${statsLine ? `<div class="d-stats">${esc(statsLine)}</div>` : ''}
       ${rec.coffee ? `<div class="d-coffee">${esc(rec.coffee)}</div>` : ''}
       ${rec.note ? `<div class="d-note">${esc(rec.note)}</div>` : ''}
       <div class="d-time">${new Date(rec.drankAt).toLocaleString('zh-CN')}</div>

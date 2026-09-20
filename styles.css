@@ -97,6 +97,15 @@ html, body {
 .cat-tab.on { background: var(--brown); color: #fff; border-color: var(--brown); }
 .star-toggle { border-style: dashed; }
 
+/* 星级筛选入口单独一行（品类 5 项挤同一行会把星级挤出可视区） */
+.star-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
 /* 星级筛选条（展开时显示） */
 .star-tabs {
   display: flex;
@@ -236,7 +245,7 @@ html, body {
   cursor: pointer;
 }
 .quick-btn:active { background: #cfe3b8; }
-.field { margin-bottom: 16px; }
+.field { margin-bottom: 16px; position: relative; }
 .field label {
   display: block;
   font-size: 13px;
@@ -257,6 +266,37 @@ html, body {
 }
 .field input:focus, .field textarea:focus { border-color: var(--brown-soft); }
 .field textarea { min-height: 72px; resize: vertical; }
+
+/* 输入自动补全下拉（挂在 .field 内，绝对定位在输入框下方） */
+.ac-list {
+  position: absolute;
+  left: 0; right: 0;
+  top: 100%; /* .field 的最后一个子元素就是输入框，100% 即输入框下沿 */
+  z-index: 40;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-height: 216px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.ac-list[hidden] { display: none; }
+.ac-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  padding: 12px;
+  cursor: pointer;
+}
+.ac-item:first-child { border-top: 0; }
+.ac-item:active { background: var(--mint); }
 
 /* 星级输入 */
 .stars-input { font-size: 32px; letter-spacing: 6px; user-select: none; }
@@ -298,6 +338,7 @@ html, body {
   text-align: left; white-space: pre-wrap; box-shadow: var(--shadow);
 }
 .detail .d-time { color: var(--text-soft); font-size: 13px; margin-top: 20px; }
+.detail .d-stats { color: var(--text-soft); font-size: 13px; margin-top: 8px; }
 .detail .d-photo { margin-top: 20px; }
 .detail .d-photo img { width: 100%; border-radius: 12px; }
 
