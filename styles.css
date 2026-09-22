@@ -300,6 +300,13 @@ html, body {
 .detail .d-stars { font-size: 28px; color: var(--star); letter-spacing: 4px; }
 .detail .d-shop { font-size: 24px; font-weight: 700; margin-top: 12px; }
 .detail .d-coffee { font-size: 17px; color: var(--brown-soft); margin-top: 4px; }
+/* 温度/冰/糖分：只展示填过的项 */
+.detail .d-specs { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+.detail .d-specs .spec-chip {
+  font-size: 13px; color: var(--text-soft);
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: 999px; padding: 4px 12px;
+}
 .detail .d-note {
   font-size: 16px; margin-top: 20px; line-height: 1.6;
   background: var(--surface); border-radius: var(--radius); padding: 16px;

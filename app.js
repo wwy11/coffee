@@ -13,6 +13,14 @@ const CAT_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label]));
 // 老数据无 category 时归为咖啡
 const normCat = (c) => (CAT_LABEL[c] ? c : 'coffee');
 
+/* ============ 饮品详细信息：温度 / 冰 / 糖分 ============ */
+// 全部选填，只存选项里的固定字面量（空串 = 没填）。导入时按白名单清洗，
+// 想加选项直接往数组里加即可，老记录的空值天然兼容。
+const TEMP_OPTS = ['常温', '热饮', '冷饮'];
+const ICE_OPTS = ['多冰', '正常冰', '少冰', '去冰'];
+const SUGAR_OPTS = ['正常糖', '七分糖', '五分糖', '三分糖', '一分糖', '无糖'];
+const normOpt = (opts, v) => (opts.indexOf(v) > -1 ? v : '');
+
 /* ============ 存储层：IndexedDB ============ */
 const DB = (() => {
   const NAME = 'coffee-db';
@@ -564,7 +572,7 @@ route('home', async () => {
 /* ============ 记一杯 / 编辑 表单 ============ */
 route('edit', async (params) => {
   const editing = params.id ? await DB.get(params.id) : null;
-  const rec = editing || { id: uid(), category: 'coffee', shop: '', coffee: '', rating: 0, note: '', drankAt: Date.now(), photo: null };
+  const rec = editing || { id: uid(), category: 'coffee', shop: '', coffee: '', rating: 0, note: '', drankAt: Date.now(), photo: null, temp: '', ice: '', sugar: '' };
   rec.category = normCat(rec.category);
 
   // 自动补全词池：历史记录里的店名 / 饮品名。读取失败就退化成没有补全，不影响填表
@@ -621,7 +629,27 @@ route('edit', async (params) => {
         <input type="datetime-local" id="f-time" value="${toLocalInput(rec.drankAt)}" />
       </div></div>`);
 
-  form.append(catField, shopField, coffeeField, ratingField, noteField, timeField);
+  // 温度 / 冰 / 糖分：三组单选胶囊，全部选填。再点一下已选的可以取消（回到「没填」）
+  function optionField(label, opts, key) {
+    const f = el(`<div class="field"><label>${label}（选填）</label><div class="cat-select"></div></div>`);
+    const wrap = f.querySelector('.cat-select');
+    const btns = opts.map((o) => {
+      const b = el(`<button type="button" class="cat-opt">${o}</button>`);
+      b.onclick = () => {
+        rec[key] = rec[key] === o ? '' : o;
+        btns.forEach((x, i) => x.classList.toggle('on', opts[i] === rec[key]));
+      };
+      wrap.append(b);
+      return b;
+    });
+    btns.forEach((x, i) => x.classList.toggle('on', opts[i] === rec[key]));
+    return f;
+  }
+  const tempField = optionField('温度', TEMP_OPTS, 'temp');
+  const iceField = optionField('冰', ICE_OPTS, 'ice');
+  const sugarField = optionField('糖分', SUGAR_OPTS, 'sugar');
+
+  form.append(catField, shopField, coffeeField, ratingField, tempField, iceField, sugarField, noteField, timeField);
   page.append(form);
 
   const catOpts = [...catField.querySelectorAll('.cat-opt')];
@@ -776,6 +804,9 @@ route('edit', async (params) => {
     rec.coffee = coffeeInput.value.trim();
     rec.note = noteInput.value.trim();
     rec.drankAt = fromLocalInput(timeInput.value) || Date.now();
+    rec.temp = normOpt(TEMP_OPTS, rec.temp);
+    rec.ice = normOpt(ICE_OPTS, rec.ice);
+    rec.sugar = normOpt(SUGAR_OPTS, rec.sugar);
     if (!editing) rec.createdAt = Date.now();
     rec.updatedAt = Date.now();
     try {
@@ -860,6 +891,7 @@ route('detail', async (params) => {
       <div class="d-cat"><span class="cat-chip">${CAT_LABEL[rec.category]}</span></div>
       ${statsLine ? `<div class="d-stats">${esc(statsLine)}</div>` : ''}
       ${rec.coffee ? `<div class="d-coffee">${esc(rec.coffee)}</div>` : ''}
+      ${(rec.temp || rec.ice || rec.sugar) ? `<div class="d-specs">${[rec.temp, rec.ice, rec.sugar].filter(Boolean).map((v) => `<span class="spec-chip">${esc(v)}</span>`).join('')}</div>` : ''}
       ${rec.note ? `<div class="d-note">${esc(rec.note)}</div>` : ''}
       <div class="d-time">${new Date(rec.drankAt).toLocaleString('zh-CN')}</div>
       ${rec.photo ? `<div class="d-photo"><img src="${esc(rec.photo)}" alt="饮品照片" /></div>` : ''}
@@ -924,6 +956,8 @@ route('settings', async () => {
       const valid = recs.filter((r) => r && r.id).map((r) => ({
         id: String(r.id), category: normCat(r.category), shop: r.shop || '', coffee: r.coffee || '',
         rating: Number(r.rating) || 0, note: r.note || '',
+        // 温度/冰/糖分按白名单清洗：老备份没有这三个字段 → 空串
+        temp: normOpt(TEMP_OPTS, r.temp), ice: normOpt(ICE_OPTS, r.ice), sugar: normOpt(SUGAR_OPTS, r.sugar),
         drankAt: Number(r.drankAt) || Date.now(),
         createdAt: Number(r.createdAt) || Date.now(),
         updatedAt: Number(r.updatedAt) || Date.now(),
