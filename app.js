@@ -305,7 +305,7 @@ function buildPool(records, pick) {
 }
 
 // 轻量下拉补全。原生 datalist 在 iOS 上表现不稳（有时不弹、样式不可控），自己画一个。
-// rank 可选：给候选重新排序（用在「饮品名」上，让当前店喝过的排前面）
+// rank 可选：对词池做变换（用在「饮品名」上，按当前店过滤：只留这家店喝过的）。
 function attachAC(field, input, pool, rank) {
   const list = el(`<div class="ac-list" hidden></div>`);
   field.append(list);
@@ -664,13 +664,16 @@ route('edit', async (params) => {
   const timeInput = timeField.querySelector('input');
   const starEls = [...ratingField.querySelectorAll('.star')];
 
-  // 自动补全：店名用历史店名；饮品名优先推荐「当前店喝过的」，其次是其他店的
+  // 自动补全：店名用历史店名；饮品名「只提示这家店喝过的」。
+  // 填了店名就按店过滤（没在这家喝过的一律不出现），没填店名才给全量。
+  // rank 每次展开时都会重算，所以店名改了、再点饮品名，候选就是新的。
   attachAC(shopField, shopInput, shopPool);
   attachAC(coffeeField, coffeeInput, drinkPool, (pool) => {
-    const s = shopInput.value.trim();
+    const key = (v) => String(v || '').trim().toLowerCase(); // 大小写不敏感，手打 "manner" 也能对上 "Manner"
+    const s = key(shopInput.value);
     if (!s) return pool;
-    const seen = new Set(history.filter((r) => String(r.shop || '').trim() === s).map((r) => String(r.coffee || '').trim()));
-    return [...pool].sort((a, b) => (seen.has(b) ? 1 : 0) - (seen.has(a) ? 1 : 0));
+    const seen = new Set(history.filter((r) => key(r.shop) === s).map((r) => key(r.coffee)));
+    return pool.filter((v) => seen.has(key(v)));
   });
 
   function paintStars() {
