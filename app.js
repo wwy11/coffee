@@ -513,11 +513,15 @@ route('home', async () => {
       const st = stats.byId[r.id] || {};
       // 「第 N 次」是同一家店的同一款——换店就是新的第 1 次；缺店名或饮品名时不显示，免得出现孤零零一个序号
       const seq = (r.shop && r.coffee && st.itemSeq) ? `第 ${st.itemSeq} 次 · ` : '';
+      // 主行突出饮品名（你要记的主体），店名退到副行。
+      // 没填饮品名时主行回落成店名，副行就不再重复店名（避免一行里出现两遍）
+      const main = r.coffee || r.shop || '未命名';
+      const subShop = (r.coffee && r.shop) ? `<span class="shop">${esc(r.shop)}</span> · ` : '';
       const wrap = el(`
         <div class="item-wrap">
           <div class="item-body">
-            <div><span class="stars">${stars(r.rating)}</span><span class="shop">${esc(r.shop || '未命名')}</span></div>
-            <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${esc(r.coffee || '')}${r.coffee ? ' · ' : ' '}${seq}${relTime(r.drankAt)}</div>
+            <div><span class="stars">${stars(r.rating)}</span><span class="drink">${esc(main)}</span></div>
+            <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${subShop}${seq}${relTime(r.drankAt)}</div>
           </div>
           <button class="item-del" aria-label="删除">🗑</button>
         </div>`);

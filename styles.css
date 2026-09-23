@@ -142,8 +142,11 @@ html, body {
 }
 .item-wrap:active .item-body { background: #eef3ea; }
 .item-body .stars { font-size: 15px; letter-spacing: 2px; }
-.item-body .shop { font-weight: 600; font-size: 16px; margin-left: 8px; }
+/* 主行＝饮品名（记录的主体），比原来的店名更重更大 */
+.item-body .drink { font-weight: 700; font-size: 17px; margin-left: 8px; }
 .item-body .sub { color: var(--text-soft); font-size: 13px; margin-top: 4px; }
+/* 副行＝品牌名，压一点主题绿，和后面的时间区分开 */
+.item-body .sub .shop { color: var(--brown-soft); }
 .item-del {
   position: absolute;
   top: 0;
