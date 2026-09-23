@@ -18,7 +18,7 @@ const normCat = (c) => (CAT_LABEL[c] ? c : 'coffee');
 // 想加选项直接往数组里加即可，老记录的空值天然兼容。
 const TEMP_OPTS = ['常温', '热饮', '冷饮'];
 const ICE_OPTS = ['多冰', '正常冰', '少冰', '去冰'];
-const SUGAR_OPTS = ['正常糖', '七分糖', '五分糖', '三分糖', '一分糖', '无糖'];
+const SUGAR_OPTS = ['正常糖', '少糖', '少少糖', '七分糖', '五分糖', '三分糖', '一分糖', '无糖'];
 const normOpt = (opts, v) => (opts.indexOf(v) > -1 ? v : '');
 
 /* ============ 存储层：IndexedDB ============ */
@@ -633,25 +633,21 @@ route('edit', async (params) => {
         <input type="datetime-local" id="f-time" value="${toLocalInput(rec.drankAt)}" />
       </div></div>`);
 
-  // 温度 / 冰 / 糖分：三组单选胶囊，全部选填。再点一下已选的可以取消（回到「没填」）
-  function optionField(label, opts, key) {
-    const f = el(`<div class="field"><label>${label}（选填）</label><div class="cat-select"></div></div>`);
-    const wrap = f.querySelector('.cat-select');
-    const btns = opts.map((o) => {
-      const b = el(`<button type="button" class="cat-opt">${o}</button>`);
-      b.onclick = () => {
-        rec[key] = rec[key] === o ? '' : o;
-        btns.forEach((x, i) => x.classList.toggle('on', opts[i] === rec[key]));
-      };
-      wrap.append(b);
-      return b;
-    });
-    btns.forEach((x, i) => x.classList.toggle('on', opts[i] === rec[key]));
+  // 温度 / 冰 / 糖分：三个下拉（原生 select，iOS 弹系统滚轮；选项变多也不占版面）。
+  // 全部选填，第一项「不填」= 空串，选它即可清空。
+  function selectField(label, opts, key) {
+    const optHtml = ['<option value="">不填</option>']
+      .concat(opts.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`)).join('');
+    const f = el(`<div class="field"><label>${label}（选填）</label>
+      <div class="select-wrap"><select>${optHtml}</select></div></div>`);
+    const sel = f.querySelector('select');
+    sel.value = normOpt(opts, rec[key]); // 脏值回落成「不填」
+    sel.onchange = () => { rec[key] = normOpt(opts, sel.value); };
     return f;
   }
-  const tempField = optionField('温度', TEMP_OPTS, 'temp');
-  const iceField = optionField('冰', ICE_OPTS, 'ice');
-  const sugarField = optionField('糖分', SUGAR_OPTS, 'sugar');
+  const tempField = selectField('温度', TEMP_OPTS, 'temp');
+  const iceField = selectField('冰', ICE_OPTS, 'ice');
+  const sugarField = selectField('糖分', SUGAR_OPTS, 'sugar');
 
   form.append(catField, shopField, coffeeField, ratingField, tempField, iceField, sugarField, noteField, timeField);
   page.append(form);

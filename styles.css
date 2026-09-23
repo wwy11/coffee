@@ -235,8 +235,35 @@ html, body {
   outline: none;
   font-family: inherit;
 }
-.field input:focus, .field textarea:focus { border-color: var(--brown-soft); }
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--brown-soft); }
 .field textarea { min-height: 72px; resize: vertical; }
+
+/* 下拉选择（温度 / 冰 / 糖分）：原生 select，iOS 弹系统滚轮，选项再多也不占版面 */
+.select-wrap { position: relative; }
+.field select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 40px 12px 14px;
+  font-size: 16px;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.select-wrap::after {
+  content: '▾';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-soft);
+  font-size: 13px;
+  pointer-events: none;
+}
 
 /* 输入自动补全下拉（挂在 .field 内，绝对定位在输入框下方） */
 .ac-list {
@@ -456,6 +483,8 @@ html, body {
   --warn-bg: #38301b;
   --warn-text: #d9b35e;
   --shadow: 0 4px 16px rgba(0, 0, 0, .45);
+  /* 让原生控件（select 弹层、日期选择器、滚动条）跟着变暗，否则深色下弹层是白底 */
+  color-scheme: dark;
 }
 
 /* 下面这些颜色之前写死了亮色值，深色下逐个覆盖 */
