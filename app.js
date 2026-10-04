@@ -116,6 +116,42 @@ const el = (html) => { const t = document.createElement('template'); t.innerHTML
 const esc = (s) => (s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+/* ============ 图片处理 ============ */
+// 选一张图，一次出两张：1000px 给详情页、160px 给首页列表。
+// ① 不压的话几张原图就能吃掉 IndexedDB 配额，而且 iOS 超配额是「静默失败」——保存不上还不报错；
+// ② 列表里塞 1000px 大图是 iOS 上回首页卡顿的真凶，列表只吃小图。
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        resolve({ full: scaleTo(img, 1000, 0.75), thumb: scaleTo(img, 160, 0.6) });
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片读取失败')); };
+    img.src = url;
+  });
+}
+
+// 缩到最长边 max、按 quality 编成 jpeg dataURL（只缩不放）
+function scaleTo(img, max, quality) {
+  const scale = Math.min(1, max / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  return c.toDataURL('image/jpeg', quality);
+}
+
+// 列表缩略图占位：没图的记录放一个极淡的杯子线框，保证左边缘对齐、行高一致
+const PH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h12v6.5a4.5 4.5 0 0 1-4.5 4.5h-3A4.5 4.5 0 0 1 4 14.5V8z"/><path d="M16 10h1.8a2.2 2.2 0 0 1 0 4.4H16"/></svg>`;
+
 function stars(n) { return '★★★★★☆☆☆☆☆'.slice(5 - n, 10 - n); }
 
 function relTime(ts) {
@@ -517,11 +553,17 @@ route('home', async () => {
       // 没填饮品名时主行回落成店名，副行就不再重复店名（避免一行里出现两遍）
       const main = r.coffee || r.shop || '未命名';
       const subShop = (r.coffee && r.shop) ? `<span class="shop">${esc(r.shop)}</span> · ` : '';
+      // 缩略图固定占一格：有图用 160px 小图，没图放极淡的占位，保证左边缘对齐、行高一致
+      // （老数据/导入的备份可能只有 photo 没有 photoThumb，回落到大图，不破）
+      const thumb = r.photoThumb || r.photo || null;
       const wrap = el(`
         <div class="item-wrap">
           <div class="item-body">
-            <div><span class="stars">${stars(r.rating)}</span><span class="drink">${esc(main)}</span></div>
-            <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${subShop}${seq}${relTime(r.drankAt)}</div>
+            <div class="thumb${thumb ? '' : ' thumb-empty'}">${thumb ? `<img src="${esc(thumb)}" alt="" />` : PH_ICON}</div>
+            <div class="item-main">
+              <div><span class="stars">${stars(r.rating)}</span><span class="drink">${esc(main)}</span></div>
+              <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${subShop}${seq}${relTime(r.drankAt)}</div>
+            </div>
           </div>
           <button class="item-del" aria-label="删除">🗑</button>
         </div>`);
@@ -633,6 +675,63 @@ route('edit', async (params) => {
         <input type="datetime-local" id="f-time" value="${toLocalInput(rec.drankAt)}" />
       </div></div>`);
 
+  // 图片（选填）：整块可点，选完立刻压成大小两张（见 compressImage）。
+  // 不加 capture 属性，否则 iOS 只给拍照、进不了相册。
+  const photoField = el(`
+    <div class="field"><label>图片（选填）</label>
+      <input type="file" accept="image/*" id="f-photo" hidden />
+      <div class="photo-box" id="f-photo-box"></div>
+    </div>`);
+  const photoInput = photoField.querySelector('#f-photo');
+  const photoBox = photoField.querySelector('#f-photo-box');
+  let formPhoto = rec.photo || null;
+  let formThumb = rec.photoThumb || null;
+  let photoBusy = false;
+
+  function paintPhoto() {
+    photoBox.innerHTML = '';
+    if (formPhoto) {
+      const box = el(`<div class="photo-picked"></div>`);
+      box.append(el(`<img src="${esc(formThumb || formPhoto)}" alt="已选图片" />`));
+      const meta = el(`<div class="photo-meta"></div>`);
+      meta.append(el(`<div class="photo-t">已选择 1 张</div>`));
+      meta.append(el(`<div class="photo-dim">已压到最长边 1000px</div>`));
+      const del = el(`<button type="button" class="photo-del">移除图片</button>`);
+      del.onclick = () => { formPhoto = null; formThumb = null; paintPhoto(); };
+      meta.append(del);
+      box.append(meta);
+      photoBox.append(box);
+      return;
+    }
+    const add = el(`<button type="button" class="photo-add">
+      <span class="photo-ico">＋</span>
+      <span class="photo-t">${photoBusy ? '处理中…' : '添加图片'}</span>
+      <span class="photo-dim">${photoBusy ? '正在压缩' : '从相册选择，或直接拍一张'}</span>
+    </button>`);
+    add.disabled = photoBusy;
+    add.onclick = () => photoInput.click();
+    photoBox.append(add);
+  }
+  paintPhoto();
+
+  photoInput.onchange = async () => {
+    const file = photoInput.files && photoInput.files[0];
+    if (!file) return;
+    photoBusy = true;
+    paintPhoto();
+    try {
+      const out = await compressImage(file);
+      formPhoto = out.full;
+      formThumb = out.thumb;
+    } catch (e) {
+      toast('图片处理失败，换一张试试');
+    } finally {
+      photoBusy = false;
+      photoInput.value = ''; // 清掉，同一张图再选一次也能触发 change
+      paintPhoto();
+    }
+  };
+
   // 温度 / 冰 / 糖分：三个下拉（原生 select，iOS 弹系统滚轮；选项变多也不占版面）。
   // 全部选填，第一项「不填」= 空串，选它即可清空。
   function selectField(label, opts, key) {
@@ -649,7 +748,7 @@ route('edit', async (params) => {
   const iceField = selectField('冰', ICE_OPTS, 'ice');
   const sugarField = selectField('糖分', SUGAR_OPTS, 'sugar');
 
-  form.append(catField, shopField, coffeeField, ratingField, tempField, iceField, sugarField, noteField, timeField);
+  form.append(catField, shopField, coffeeField, ratingField, tempField, iceField, sugarField, noteField, timeField, photoField);
   page.append(form);
 
   const catOpts = [...catField.querySelectorAll('.cat-opt')];
@@ -810,6 +909,8 @@ route('edit', async (params) => {
     rec.temp = normOpt(TEMP_OPTS, rec.temp);
     rec.ice = normOpt(ICE_OPTS, rec.ice);
     rec.sugar = normOpt(SUGAR_OPTS, rec.sugar);
+    rec.photo = formPhoto;
+    rec.photoThumb = formThumb;
     if (!editing) rec.createdAt = Date.now();
     rec.updatedAt = Date.now();
     try {
@@ -956,6 +1057,8 @@ route('settings', async () => {
       const data = JSON.parse(await file.text());
       const recs = Array.isArray(data) ? data : data.records;
       if (!Array.isArray(recs)) throw new Error('格式不对');
+      // 图片字段只接受 data:image/ 或 http(s) 地址，其余一律丢弃（防止导入恶意内容）
+      const okImg = (v) => (typeof v === 'string' && /^(data:image\/|https?:\/\/)/.test(v)) ? v : null;
       const valid = recs.filter((r) => r && r.id).map((r) => ({
         id: String(r.id), category: normCat(r.category), shop: r.shop || '', coffee: r.coffee || '',
         rating: Number(r.rating) || 0, note: r.note || '',
@@ -965,7 +1068,8 @@ route('settings', async () => {
         createdAt: Number(r.createdAt) || Date.now(),
         updatedAt: Number(r.updatedAt) || Date.now(),
         // photo 只接受图片 data URL 和 http(s) 地址，其余一律丢弃（防止导入恶意内容）
-        photo: (typeof r.photo === 'string' && /^(data:image\/|https?:\/\/)/.test(r.photo)) ? r.photo : null,
+        photo: okImg(r.photo),
+        photoThumb: okImg(r.photoThumb), // 老备份没这张小图 → null，列表回落到大图
       }));
       await DB.bulkPut(valid);
       toast(`已恢复 ${valid.length} 条`);
