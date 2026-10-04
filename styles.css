@@ -305,31 +305,43 @@ html, body {
 .photo-add .photo-ico { font-size: 22px; color: var(--brown-soft); line-height: 1.1; }
 .photo-add .photo-t { font-size: 15px; font-weight: 500; }
 .photo-add .photo-dim { font-size: 12px; color: var(--text-soft); }
-.photo-picked { display: flex; align-items: center; gap: 14px; }
-.photo-picked img {
-  width: 84px;
-  height: 84px;
-  flex: 0 0 auto;
-  object-fit: cover;
-  border-radius: 14px;
+/* 多图：3 列网格。已选的图 + 末尾一个「＋添加」格（到上限后添加入口整体收起） */
+.photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.photo-cell {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  overflow: hidden;
   border: 1px solid var(--line);
   background: var(--surface);
-}
-.photo-meta { min-width: 0; }
-.photo-meta .photo-t { font-size: 14px; }
-.photo-meta .photo-dim { font-size: 12px; color: var(--text-soft); margin-top: 3px; }
-.photo-del {
-  margin-top: 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--danger);
-  font-size: 13px;
-  padding: 5px 14px;
   cursor: pointer;
-  font-family: inherit;
 }
-.photo-del:active { background: var(--line); }
+.photo-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 首图角标：首页列表缩略图取的就是这一张 */
+.photo-cell .pg-first {
+  position: absolute; left: 6px; top: 6px;
+  font-size: 11px; line-height: 1.6; padding: 0 6px; border-radius: 999px;
+  background: rgba(0, 0, 0, .55); color: #fff;
+}
+.photo-cell .pg-del {
+  position: absolute; right: 4px; top: 4px;
+  width: 22px; height: 22px; padding: 0; line-height: 1;
+  border: none; border-radius: 50%;
+  background: rgba(0, 0, 0, .55); color: #fff; font-size: 13px;
+  cursor: pointer; font-family: inherit;
+}
+.photo-add-cell {
+  aspect-ratio: 1;
+  border: 1.5px dashed var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text-soft);
+  font-size: 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  cursor: pointer; font-family: inherit;
+}
+.photo-add-cell .pg-plus { font-size: 20px; color: var(--brown-soft); line-height: 1; }
+.photo-tip { font-size: 12px; color: var(--text-soft); margin-top: 10px; }
 
 /* 输入自动补全下拉（挂在 .field 内，绝对定位在输入框下方） */
 .ac-list {
@@ -410,8 +422,46 @@ html, body {
 }
 .detail .d-time { color: var(--text-soft); font-size: 13px; margin-top: 20px; }
 .detail .d-stats { color: var(--text-soft); font-size: 13px; margin-top: 8px; }
-.detail .d-photo { margin-top: 20px; }
-.detail .d-photo img { width: 100%; border-radius: 12px; }
+/* 详情图片：多图左右滑动。高度由 JS 按「当前那张」的比例给（见 buildGallery），
+   这里只声明过渡，不写死高度；单图时也走这套，只是没有计数和圆点 */
+.detail .d-gallery { position: relative; margin-top: 20px; }
+.detail .d-carou {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  border-radius: 12px;
+  background: var(--surface);
+  transition: height .28s ease;
+  scrollbar-width: none;
+}
+.detail .d-carou::-webkit-scrollbar { display: none; }
+.detail .d-slide {
+  flex: 0 0 100%;
+  height: 100%;
+  scroll-snap-align: center;
+  scroll-snap-stop: always; /* 一次只翻一张，别甩过头 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.detail .d-slide img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* 计数与圆点压在图上：不管图是深是浅，深底白字都看得清 */
+.detail .d-count {
+  position: absolute; right: 10px; bottom: 10px;
+  font-size: 11px; line-height: 1.7; padding: 0 8px; border-radius: 999px;
+  background: rgba(0, 0, 0, .42); color: #fff;
+  pointer-events: none;
+}
+.detail .d-dots {
+  position: absolute; left: 0; right: 0; bottom: 10px;
+  width: fit-content; margin: 0 auto;
+  display: flex; gap: 6px; padding: 5px 9px; border-radius: 999px;
+  background: rgba(0, 0, 0, .42);
+  pointer-events: none;
+}
+.detail .d-dots span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, .5); }
+.detail .d-dots span.on { background: #fff; }
 
 /* 设置 */
 .settings { padding: 8px 16px; }

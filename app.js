@@ -120,6 +120,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // 选一张图，一次出两张：1000px 给详情页、160px 给首页列表。
 // ① 不压的话几张原图就能吃掉 IndexedDB 配额，而且 iOS 超配额是「静默失败」——保存不上还不报错；
 // ② 列表里塞 1000px 大图是 iOS 上回首页卡顿的真凶，列表只吃小图。
+// 顺带记下高宽比（h/w），详情页靠它算容器高度，见 fitRatio。
 function compressImage(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -127,7 +128,11 @@ function compressImage(file) {
     img.onload = () => {
       URL.revokeObjectURL(url);
       try {
-        resolve({ full: scaleTo(img, 1000, 0.75), thumb: scaleTo(img, 160, 0.6) });
+        resolve({
+          full: scaleTo(img, 1000, 0.75),
+          thumb: scaleTo(img, 160, 0.6),
+          ratio: img.width ? img.height / img.width : 0,
+        });
       } catch (e) {
         reject(e);
       }
@@ -148,6 +153,101 @@ function scaleTo(img, max, quality) {
   c.getContext('2d').drawImage(img, 0, 0, w, h);
   return c.toDataURL('image/jpeg', quality);
 }
+
+// 一条记录最多几张图；第 1 张即首图（首页列表缩略图只取它）
+const MAX_PHOTOS = 9;
+// 详情页容器高度＝宽度×图片高宽比，掐在下面这个区间里：
+// 太扁（>1.6:1 的全景）会变成一条细缝，太高（超过 4:5 的长截图）会把详情页撑得翻半天。掐住后那点留白由 object-fit 兜底。
+const RATIO_MIN = 0.62;
+const RATIO_MAX = 1.25;
+const DEFAULT_RATIO = 0.75; // 老数据没记比例时先按 4:3 摆，图加载完会自己修正
+const fitRatio = (r) => (r > 0 ? Math.min(RATIO_MAX, Math.max(RATIO_MIN, r)) : DEFAULT_RATIO);
+
+// 把一条记录的图片读成统一结构：photos[]/thumbs[]/ratios[] 三个数组按下标对齐。
+// 老记录（以及老备份）只有单张的 photo/photoThumb，这里也一并读出来，所以不用做数据迁移。
+function photoList(rec) {
+  const out = [];
+  const ph = Array.isArray(rec.photos) ? rec.photos : [];
+  const th = Array.isArray(rec.thumbs) ? rec.thumbs : [];
+  const ra = Array.isArray(rec.ratios) ? rec.ratios : [];
+  for (let i = 0; i < ph.length && out.length < MAX_PHOTOS; i++) {
+    if (typeof ph[i] !== 'string' || !ph[i]) continue;
+    out.push({
+      full: ph[i],
+      thumb: (typeof th[i] === 'string' && th[i]) ? th[i] : ph[i], // 没小图就回落到大图，不破
+      ratio: Number(ra[i]) || 0,
+    });
+  }
+  if (!out.length && typeof rec.photo === 'string' && rec.photo) {
+    out.push({ full: rec.photo, thumb: rec.photoThumb || rec.photo, ratio: 0 });
+  }
+  return out;
+}
+
+// 首页列表缩略图：只看首图
+function thumbOf(rec) {
+  const l = photoList(rec);
+  return l.length ? l[0].thumb : null;
+}
+
+// 详情页图片区：多图时左右滑动（scroll-snap 吸边），容器高度跟着当前那张的比例走。
+// 单图就只是一张图，计数和圆点都不出现。注意：必须挂进文档之后再调用，否则宽度是 0、算不出高度。
+function buildGallery(pics) {
+  const gal = el(`<div class="d-gallery"></div>`);
+  const carou = el(`<div class="d-carou"></div>`);
+  pics.forEach((p) => carou.append(el(`<div class="d-slide"><img src="${esc(p.full)}" alt="" /></div>`)));
+  gal.append(carou);
+
+  let dots = null;
+  let count = null;
+  if (pics.length > 1) {
+    dots = el(`<div class="d-dots">${pics.map(() => '<span></span>').join('')}</div>`);
+    count = el(`<div class="d-count">1/${pics.length}</div>`);
+    gal.append(dots, count);
+  }
+
+  // 只认「滚到哪一张」，每次都整个重算高度和指示点，不做下标记账（省得跟 scroll-snap 对不齐）
+  function sync(instant) {
+    const w = carou.clientWidth;
+    if (!w) return;
+    const i = Math.max(0, Math.min(pics.length - 1, Math.round(carou.scrollLeft / w)));
+    const h = Math.round(w * fitRatio(pics[i].ratio));
+    if (instant) carou.style.transition = 'none'; // 首屏别让它从 0 长出来
+    if (carou.style.height !== h + 'px') carou.style.height = h + 'px';
+    if (instant) requestAnimationFrame(() => { carou.style.transition = ''; });
+    if (dots) {
+      dots.querySelectorAll('span').forEach((s, k) => s.classList.toggle('on', k === i));
+      count.textContent = `${i + 1}/${pics.length}`;
+    }
+  }
+
+  // 老数据/导入的图没记比例，等图加载完补上再同步一次（新记录存了比例，不用等）
+  carou.querySelectorAll('img').forEach((img, k) => {
+    if (pics[k].ratio > 0) return;
+    const fix = () => {
+      if (img.naturalWidth) pics[k].ratio = img.naturalHeight / img.naturalWidth;
+      sync();
+    };
+    if (img.complete) fix();
+    else img.onload = fix;
+  });
+
+  let raf = 0;
+  carou.addEventListener('scroll', () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; sync(); });
+  }, { passive: true });
+
+  galleryFit = sync; // 转屏后宽度变了要重算
+  // 不在这里调 sync：此时 gal 还没被挂进文档，clientWidth 必然是 0。
+  // 调用方 append 之后立刻调 fit()（见 detail 路由）
+  return { el: gal, fit: sync };
+}
+
+// 详情页轮播「按当前宽度重算高度」的回调。转屏后宽度变了要重算，
+// 全局只挂一个 resize 监听，每次进详情覆盖这个引用（不会攒监听）
+let galleryFit = null;
+window.addEventListener('resize', () => { if (galleryFit) galleryFit(); });
 
 // 列表缩略图占位：没图的记录放一个极淡的杯子线框，保证左边缘对齐、行高一致
 const PH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h12v6.5a4.5 4.5 0 0 1-4.5 4.5h-3A4.5 4.5 0 0 1 4 14.5V8z"/><path d="M16 10h1.8a2.2 2.2 0 0 1 0 4.4H16"/></svg>`;
@@ -554,8 +654,8 @@ route('home', async () => {
       const main = r.coffee || r.shop || '未命名';
       const subShop = (r.coffee && r.shop) ? `<span class="shop">${esc(r.shop)}</span> · ` : '';
       // 缩略图固定占一格：有图用 160px 小图，没图放极淡的占位，保证左边缘对齐、行高一致
-      // （老数据/导入的备份可能只有 photo 没有 photoThumb，回落到大图，不破）
-      const thumb = r.photoThumb || r.photo || null;
+      // 多图时只吃首图（老记录的单张 photo 也能读出来，见 photoList）
+      const thumb = thumbOf(r);
       const wrap = el(`
         <div class="item-wrap">
           <div class="item-body">
@@ -618,7 +718,7 @@ route('home', async () => {
 /* ============ 记一杯 / 编辑 表单 ============ */
 route('edit', async (params) => {
   const editing = params.id ? await DB.get(params.id) : null;
-  const rec = editing || { id: uid(), category: 'coffee', shop: '', coffee: '', rating: 0, note: '', drankAt: Date.now(), photo: null, temp: '', ice: '', sugar: '' };
+  const rec = editing || { id: uid(), category: 'coffee', shop: '', coffee: '', rating: 0, note: '', drankAt: Date.now(), photos: [], thumbs: [], ratios: [], temp: '', ice: '', sugar: '' };
   rec.category = normCat(rec.category);
 
   // 自动补全词池：历史记录里的店名 / 饮品名。读取失败就退化成没有补全，不影响填表
@@ -675,61 +775,107 @@ route('edit', async (params) => {
         <input type="datetime-local" id="f-time" value="${toLocalInput(rec.drankAt)}" />
       </div></div>`);
 
-  // 图片（选填）：整块可点，选完立刻压成大小两张（见 compressImage）。
-  // 不加 capture 属性，否则 iOS 只给拍照、进不了相册。
+  // 图片（选填）：最多 MAX_PHOTOS 张，第 1 张即首图（首页列表缩略图取它）。
+  // 选完立刻逐张压成大小两张（见 compressImage）。
+  // 不加 capture 属性，否则 iOS 只给拍照、进不了相册；加 multiple 才能一次从相册多选。
   const photoField = el(`
     <div class="field"><label>图片（选填）</label>
-      <input type="file" accept="image/*" id="f-photo" hidden />
+      <input type="file" accept="image/*" id="f-photo" multiple hidden />
       <div class="photo-box" id="f-photo-box"></div>
     </div>`);
   const photoInput = photoField.querySelector('#f-photo');
   const photoBox = photoField.querySelector('#f-photo-box');
-  let formPhoto = rec.photo || null;
-  let formThumb = rec.photoThumb || null;
-  let photoBusy = false;
+  // 三个数组按下标对齐；老记录的单张 photo/photoThumb 由 photoList 读出来，
+  // 保存时统一写数组并清掉老字段（见 save），所以不会长期并存两份
+  const _pl = photoList(rec);
+  let formPhotos = _pl.map((p) => p.full);
+  let formThumbs = _pl.map((p) => p.thumb);
+  let formRatios = _pl.map((p) => p.ratio);
+  let photoBusy = 0; // 正在压第几张（0 = 空闲）
+  let photoTotal = 0;
 
   function paintPhoto() {
     photoBox.innerHTML = '';
-    if (formPhoto) {
-      const box = el(`<div class="photo-picked"></div>`);
-      box.append(el(`<img src="${esc(formThumb || formPhoto)}" alt="已选图片" />`));
-      const meta = el(`<div class="photo-meta"></div>`);
-      meta.append(el(`<div class="photo-t">已选择 1 张</div>`));
-      meta.append(el(`<div class="photo-dim">已压到最长边 1000px</div>`));
-      const del = el(`<button type="button" class="photo-del">移除图片</button>`);
-      del.onclick = () => { formPhoto = null; formThumb = null; paintPhoto(); };
-      meta.append(del);
-      box.append(meta);
-      photoBox.append(box);
+    if (formPhotos.length) {
+      const grid = el(`<div class="photo-grid"></div>`);
+      formPhotos.forEach((src, i) => {
+        const cell = el(`<div class="photo-cell">
+          <img src="${esc(formThumbs[i] || src)}" alt="" />
+          <button type="button" class="pg-del" aria-label="删除这张">✕</button>
+        </div>`);
+        if (i === 0) cell.append(el(`<span class="pg-first">首图</span>`));
+        cell.querySelector('.pg-del').onclick = (e) => {
+          e.stopPropagation();
+          formPhotos.splice(i, 1);
+          formThumbs.splice(i, 1);
+          formRatios.splice(i, 1);
+          paintPhoto();
+        };
+        // 点图设为首图：把这张挪到 0 号位（三个数组一起挪，别错位）
+        cell.onclick = () => {
+          if (i === 0) return;
+          formPhotos.unshift(formPhotos.splice(i, 1)[0]);
+          formThumbs.unshift(formThumbs.splice(i, 1)[0]);
+          formRatios.unshift(formRatios.splice(i, 1)[0]);
+          paintPhoto();
+          toast('已设为首图');
+        };
+        grid.append(cell);
+      });
+      // 到上限就把添加入口整体收起来，只留已选的图
+      if (formPhotos.length < MAX_PHOTOS) {
+        const add = el(`<button type="button" class="photo-add-cell">
+          <span class="pg-plus">＋</span>
+          <span>${photoBusy ? '处理中' : '添加'}</span>
+        </button>`);
+        add.disabled = !!photoBusy;
+        add.onclick = () => photoInput.click();
+        grid.append(add);
+      }
+      photoBox.append(grid);
+      const tip = photoBusy
+        ? `正在压缩第 ${photoBusy}/${photoTotal} 张…`
+        : `已选 ${formPhotos.length}/${MAX_PHOTOS} 张 · 点图片可设为首图，第 1 张作列表封面`;
+      photoBox.append(el(`<div class="photo-tip">${tip}</div>`));
       return;
     }
     const add = el(`<button type="button" class="photo-add">
       <span class="photo-ico">＋</span>
       <span class="photo-t">${photoBusy ? '处理中…' : '添加图片'}</span>
-      <span class="photo-dim">${photoBusy ? '正在压缩' : '从相册选择，或直接拍一张'}</span>
+      <span class="photo-dim">${photoBusy ? '正在压缩' : `从相册选择，最多 ${MAX_PHOTOS} 张`}</span>
     </button>`);
-    add.disabled = photoBusy;
+    add.disabled = !!photoBusy;
     add.onclick = () => photoInput.click();
     photoBox.append(add);
   }
   paintPhoto();
 
   photoInput.onchange = async () => {
-    const file = photoInput.files && photoInput.files[0];
-    if (!file) return;
-    photoBusy = true;
-    paintPhoto();
-    try {
-      const out = await compressImage(file);
-      formPhoto = out.full;
-      formThumb = out.thumb;
-    } catch (e) {
-      toast('图片处理失败，换一张试试');
-    } finally {
-      photoBusy = false;
-      photoInput.value = ''; // 清掉，同一张图再选一次也能触发 change
+    const files = Array.from(photoInput.files || []);
+    if (!files.length) return;
+    // 只收装得下的张数，多选的当场砍掉并说明，免得压完一半才发现存不下
+    const room = MAX_PHOTOS - formPhotos.length;
+    const take = files.slice(0, room);
+    if (files.length > room) toast(`最多 ${MAX_PHOTOS} 张，只取了前 ${room} 张`);
+    photoTotal = take.length;
+    let failed = 0;
+    for (let i = 0; i < take.length; i++) {
+      photoBusy = i + 1;
       paintPhoto();
+      try {
+        const out = await compressImage(take[i]);
+        formPhotos.push(out.full);
+        formThumbs.push(out.thumb);
+        formRatios.push(out.ratio);
+      } catch (e) {
+        failed++;
+      }
     }
+    photoBusy = 0;
+    photoTotal = 0;
+    photoInput.value = ''; // 清掉，同一张图再选一次也能触发 change
+    paintPhoto();
+    if (failed) toast(`${failed} 张没读成功，其余已加入`);
   };
 
   // 温度 / 冰 / 糖分：三个下拉（原生 select，iOS 弹系统滚轮；选项变多也不占版面）。
@@ -909,8 +1055,12 @@ route('edit', async (params) => {
     rec.temp = normOpt(TEMP_OPTS, rec.temp);
     rec.ice = normOpt(ICE_OPTS, rec.ice);
     rec.sugar = normOpt(SUGAR_OPTS, rec.sugar);
-    rec.photo = formPhoto;
-    rec.photoThumb = formThumb;
+    rec.photos = formPhotos.slice();
+    rec.thumbs = formThumbs.slice();
+    rec.ratios = formRatios.slice();
+    // 老字段清掉：留着就等于同一张图存两份，备份体积白翻一倍
+    delete rec.photo;
+    delete rec.photoThumb;
     if (!editing) rec.createdAt = Date.now();
     rec.updatedAt = Date.now();
     try {
@@ -988,6 +1138,7 @@ route('detail', async (params) => {
     statsLine = bits.join(' · ');
   } catch (e) {}
 
+  const pics = photoList(rec);
   const detail = el(`
     <div class="detail">
       <div class="d-stars">${stars(rec.rating)}</div>
@@ -998,12 +1149,17 @@ route('detail', async (params) => {
       ${(rec.temp || rec.ice || rec.sugar) ? `<div class="d-specs">${[rec.temp, rec.ice, rec.sugar].filter(Boolean).map((v) => `<span class="spec-chip">${esc(v)}</span>`).join('')}</div>` : ''}
       ${rec.note ? `<div class="d-note">${esc(rec.note)}</div>` : ''}
       <div class="d-time">${new Date(rec.drankAt).toLocaleString('zh-CN')}</div>
-      ${rec.photo ? `<div class="d-photo"><img src="${esc(rec.photo)}" alt="饮品照片" /></div>` : ''}
     </div>`);
   page.append(detail);
 
   app.innerHTML = '';
   app.append(page);
+  // 图片挂在详情页最末。必须先 append 再 fit(true)：容器挂进文档后量得到宽度，才算得出高度
+  if (pics.length) {
+    const g = buildGallery(pics);
+    detail.append(g.el);
+    g.fit(true);
+  }
 });
 
 /* ============ 设置：备份 + 统计 ============ */
@@ -1059,18 +1215,38 @@ route('settings', async () => {
       if (!Array.isArray(recs)) throw new Error('格式不对');
       // 图片字段只接受 data:image/ 或 http(s) 地址，其余一律丢弃（防止导入恶意内容）
       const okImg = (v) => (typeof v === 'string' && /^(data:image\/|https?:\/\/)/.test(v)) ? v : null;
-      const valid = recs.filter((r) => r && r.id).map((r) => ({
-        id: String(r.id), category: normCat(r.category), shop: r.shop || '', coffee: r.coffee || '',
-        rating: Number(r.rating) || 0, note: r.note || '',
-        // 温度/冰/糖分按白名单清洗：老备份没有这三个字段 → 空串
-        temp: normOpt(TEMP_OPTS, r.temp), ice: normOpt(ICE_OPTS, r.ice), sugar: normOpt(SUGAR_OPTS, r.sugar),
-        drankAt: Number(r.drankAt) || Date.now(),
-        createdAt: Number(r.createdAt) || Date.now(),
-        updatedAt: Number(r.updatedAt) || Date.now(),
-        // photo 只接受图片 data URL 和 http(s) 地址，其余一律丢弃（防止导入恶意内容）
-        photo: okImg(r.photo),
-        photoThumb: okImg(r.photoThumb), // 老备份没这张小图 → null，列表回落到大图
-      }));
+      // 图片统一成三个下标对齐的数组：新备份读 photos/thumbs/ratios，老备份读单张的 photo/photoThumb
+      const cleanPics = (r) => {
+        const pairs = [];
+        if (Array.isArray(r.photos)) {
+          const th = Array.isArray(r.thumbs) ? r.thumbs : [];
+          const ra = Array.isArray(r.ratios) ? r.ratios : [];
+          r.photos.forEach((p, i) => {
+            const full = okImg(p);
+            if (full) pairs.push([full, okImg(th[i]) || full, Number(ra[i]) || 0]);
+          });
+        }
+        if (!pairs.length) {
+          const full = okImg(r.photo);
+          if (full) pairs.push([full, okImg(r.photoThumb) || full, 0]);
+        }
+        return pairs.slice(0, MAX_PHOTOS); // 超量的直接砍掉，和编辑页上限一致
+      };
+      const valid = recs.filter((r) => r && r.id).map((r) => {
+        const pics = cleanPics(r);
+        return {
+          id: String(r.id), category: normCat(r.category), shop: r.shop || '', coffee: r.coffee || '',
+          rating: Number(r.rating) || 0, note: r.note || '',
+          // 温度/冰/糖分按白名单清洗：老备份没有这三个字段 → 空串
+          temp: normOpt(TEMP_OPTS, r.temp), ice: normOpt(ICE_OPTS, r.ice), sugar: normOpt(SUGAR_OPTS, r.sugar),
+          drankAt: Number(r.drankAt) || Date.now(),
+          createdAt: Number(r.createdAt) || Date.now(),
+          updatedAt: Number(r.updatedAt) || Date.now(),
+          photos: pics.map((p) => p[0]),
+          thumbs: pics.map((p) => p[1]),
+          ratios: pics.map((p) => p[2]),
+        };
+      });
       await DB.bulkPut(valid);
       toast(`已恢复 ${valid.length} 条`);
       setTimeout(render, 300);
