@@ -422,8 +422,9 @@ html, body {
 }
 .detail .d-time { color: var(--text-soft); font-size: 13px; margin-top: 20px; }
 .detail .d-stats { color: var(--text-soft); font-size: 13px; margin-top: 8px; }
-/* 详情图片：多图左右滑动。高度由 JS 按「当前那张」的比例给（见 buildGallery），
-   这里只声明过渡，不写死高度；单图时也走这套，只是没有计数和圆点 */
+/* 详情图片：多图左右滑动，点图全屏看。高度由 JS 按「这组图里最扁那张」的比例给，全程固定不变
+   ——滑动时改高度会让整页跟着跳，而按最扁那张定高就保证任何一张都不上下留白（竖图左右留白）。
+   单图时没有计数和圆点 */
 .detail .d-gallery { position: relative; margin-top: 20px; }
 .detail .d-carou {
   display: flex;
@@ -446,6 +447,70 @@ html, body {
   justify-content: center;
 }
 .detail .d-slide img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.detail .d-slide { cursor: zoom-in; }
+
+/* 全屏看图（详情页 / 编辑页点图进入）：黑底、左右滑动、点画面或 ✕ 关闭 */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  animation: fadein .15s ease;
+}
+.viewer .v-bar {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  z-index: 2;
+  padding: calc(env(safe-area-inset-top) + 10px) 14px 10px;
+  display: flex; align-items: center;
+  pointer-events: none; /* 让「点画面关闭」在顶部也生效，只有按钮自己可点 */
+}
+.viewer .v-count {
+  font-size: 14px; color: #fff;
+  background: rgba(255, 255, 255, .18);
+  border-radius: 999px; padding: 4px 12px;
+}
+.viewer .v-close {
+  margin-left: auto;
+  width: 34px; height: 34px; padding: 0;
+  border: none; border-radius: 50%;
+  background: rgba(255, 255, 255, .18); color: #fff; font-size: 15px;
+  cursor: pointer; font-family: inherit;
+  pointer-events: auto;
+}
+.viewer .v-carou {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.viewer .v-carou::-webkit-scrollbar { display: none; }
+.viewer .v-slide {
+  flex: 0 0 100%;
+  height: 100%;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  display: flex; align-items: center; justify-content: center;
+}
+.viewer .v-slide img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.viewer .v-foot {
+  display: flex; justify-content: center;
+  padding: 12px 16px calc(env(safe-area-inset-bottom) + 18px);
+}
+.viewer .v-set {
+  border: 1px solid rgba(255, 255, 255, .38);
+  background: rgba(255, 255, 255, .14);
+  color: #fff; font-size: 15px;
+  border-radius: 999px; padding: 10px 24px;
+  cursor: pointer; font-family: inherit;
+}
+.viewer .v-set[disabled] { opacity: .45; }
 /* 计数与圆点压在图上：不管图是深是浅，深底白字都看得清 */
 .detail .d-count {
   position: absolute; right: 10px; bottom: 10px;

@@ -156,12 +156,21 @@ function scaleTo(img, max, quality) {
 
 // 一条记录最多几张图；第 1 张即首图（首页列表缩略图只取它）
 const MAX_PHOTOS = 9;
-// 详情页容器高度＝宽度×图片高宽比，掐在下面这个区间里：
-// 太扁（>1.6:1 的全景）会变成一条细缝，太高（超过 4:5 的长截图）会把详情页撑得翻半天。掐住后那点留白由 object-fit 兜底。
-const RATIO_MIN = 0.62;
+// 详情页容器高度＝宽度×「这一组图里**最扁**那张」的比例：
+// 竖图（比例大）在框里左右留白、横图正好铺满，于是**任何一张都不会出现上下留白**
+//（Enough 2026-10-04 的要求：左右留白可以，上下不行）。上限 1.25 只是别把容器撑太高；
+// **没有下限**——设了下限反而会给最扁的那张挤出上下留白。
 const RATIO_MAX = 1.25;
-const DEFAULT_RATIO = 0.75; // 老数据没记比例时先按 4:3 摆，图加载完会自己修正
-const fitRatio = (r) => (r > 0 ? Math.min(RATIO_MAX, Math.max(RATIO_MIN, r)) : DEFAULT_RATIO);
+const DEFAULT_RATIO = 0.75; // 一组图全都没记比例时先按 4:3 摆，图加载完会自己修正
+const fitRatio = (r) => (r > 0 ? Math.min(RATIO_MAX, r) : DEFAULT_RATIO);
+
+// 这一组图的容器比例 = 最扁的那张（没记比例的忽略；全都没有就用默认 4:3）
+function boxRatioOf(pics) {
+  let r = 0;
+  for (const p of pics) if (p.ratio > 0) r = r > 0 ? Math.min(r, p.ratio) : p.ratio;
+  return r || DEFAULT_RATIO;
+}
+
 
 // 把一条记录的图片读成统一结构：photos[]/thumbs[]/ratios[] 三个数组按下标对齐。
 // 老记录（以及老备份）只有单张的 photo/photoThumb，这里也一并读出来，所以不用做数据迁移。
@@ -190,8 +199,10 @@ function thumbOf(rec) {
   return l.length ? l[0].thumb : null;
 }
 
-// 详情页图片区：多图时左右滑动（scroll-snap 吸边），容器高度跟着当前那张的比例走。
-// 单图就只是一张图，计数和圆点都不出现。注意：必须挂进文档之后再调用，否则宽度是 0、算不出高度。
+// 详情页图片区：多图时左右滑动（scroll-snap 吸边），点图全屏看（openViewer）。
+// 容器高度＝宽度×「这组图里最扁那张」的比例，并且**全程固定**：滑动时改高度会把上下留白和
+// 下方内容一起挪、整页跟着跳（Enough 2026-10-04 要求）。这样任何一张都不会上下留白，竖图左右留白。
+// 单图就只是一张图，计数和圆点都不出现。必须挂进文档之后再调 fit()，否则宽度是 0、算不出高度。
 function buildGallery(pics) {
   const gal = el(`<div class="d-gallery"></div>`);
   const carou = el(`<div class="d-carou"></div>`);
@@ -206,22 +217,23 @@ function buildGallery(pics) {
     gal.append(dots, count);
   }
 
-  // 只认「滚到哪一张」，每次都整个重算高度和指示点，不做下标记账（省得跟 scroll-snap 对不齐）
+  // 高度只跟「最扁那张」走，滚动只用来更新指示点，不做下标记账（省得跟 scroll-snap 对不齐）
   function sync(instant) {
     const w = carou.clientWidth;
     if (!w) return;
-    const i = Math.max(0, Math.min(pics.length - 1, Math.round(carou.scrollLeft / w)));
-    const h = Math.round(w * fitRatio(pics[i].ratio));
+    const h = Math.round(w * fitRatio(boxRatioOf(pics)));
     if (instant) carou.style.transition = 'none'; // 首屏别让它从 0 长出来
     if (carou.style.height !== h + 'px') carou.style.height = h + 'px';
     if (instant) requestAnimationFrame(() => { carou.style.transition = ''; });
     if (dots) {
+      const i = Math.max(0, Math.min(pics.length - 1, Math.round(carou.scrollLeft / w)));
       dots.querySelectorAll('span').forEach((s, k) => s.classList.toggle('on', k === i));
       count.textContent = `${i + 1}/${pics.length}`;
     }
   }
 
-  // 老数据/导入的图没记比例，等图加载完补上再同步一次（新记录存了比例，不用等）
+  // 老数据/导入的图没记比例：哪张先算出比例都可能改变「最扁」的结果，所以每张都补一次
+  const downSL = { v: 0 };
   carou.querySelectorAll('img').forEach((img, k) => {
     if (pics[k].ratio > 0) return;
     const fix = () => {
@@ -230,6 +242,17 @@ function buildGallery(pics) {
     };
     if (img.complete) fix();
     else img.onload = fix;
+  });
+
+  // 点图全屏看。滑动过（松手时滚动位置变了）就不算点击，免得滑一下手就弹出来
+  const mark = () => { downSL.v = carou.scrollLeft; };
+  carou.addEventListener('touchstart', mark, { passive: true });
+  carou.addEventListener('mousedown', mark);
+  carou.querySelectorAll('.d-slide').forEach((slide, k) => {
+    slide.onclick = () => {
+      if (Math.abs(carou.scrollLeft - downSL.v) > 5) return;
+      openViewer(pics, k);
+    };
   });
 
   let raf = 0;
@@ -242,6 +265,65 @@ function buildGallery(pics) {
   // 不在这里调 sync：此时 gal 还没被挂进文档，clientWidth 必然是 0。
   // 调用方 append 之后立刻调 fit()（见 detail 路由）
   return { el: gal, fit: sync };
+}
+
+// 全屏看图：详情页和编辑页共用。黑底、左右滑切换、从点开的那张开始；
+// 「✕ / 点画面 / Esc」关闭。opts.onSetFirst 传了才在底部显示「设为首图」（编辑页用）
+function openViewer(pics, start, opts) {
+  const o = opts || {};
+  const ov = el(`<div class="viewer">
+    <div class="v-bar"><span class="v-count"></span><button class="v-close" aria-label="关闭">✕</button></div>
+    <div class="v-carou">${pics.map((p) => `<div class="v-slide"><img src="${esc(p.full)}" alt="" /></div>`).join('')}</div>
+    ${o.onSetFirst ? '<div class="v-foot"><button class="v-set"></button></div>' : ''}
+  </div>`);
+  const carou = ov.querySelector('.v-carou');
+  const count = ov.querySelector('.v-count');
+  const setBtn = ov.querySelector('.v-set');
+
+  const at = () => {
+    const w = carou.clientWidth || 1;
+    return Math.max(0, Math.min(pics.length - 1, Math.round(carou.scrollLeft / w)));
+  };
+  function paint() {
+    const i = at();
+    count.textContent = `${i + 1}/${pics.length}`;
+    if (setBtn) {
+      setBtn.disabled = i === 0; // 已经是首图了，别让人白点
+      setBtn.textContent = i === 0 ? '当前首图' : '设为首图';
+    }
+  }
+  let raf = 0;
+  carou.addEventListener('scroll', () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; paint(); });
+  }, { passive: true });
+
+  // 看图期间锁住页面滚动（否则在全屏层上竖着划会把底下的详情页滚走）
+  const prevOverflow = document.body.style.overflow;
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    ov.remove();
+    document.body.style.overflow = prevOverflow;
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  document.addEventListener('keydown', onKey);
+  ov.querySelector('.v-close').onclick = close;
+  ov.onclick = (e) => { if (!e.target.closest('.v-set')) close(); };
+  if (setBtn) {
+    setBtn.onclick = (e) => {
+      e.stopPropagation();
+      const i = at();
+      if (i > 0) { o.onSetFirst(i); close(); }
+    };
+  }
+
+  document.body.append(ov);
+  document.body.style.overflow = 'hidden';
+  carou.scrollLeft = start * carou.clientWidth; // 从点开的那张开始看
+  paint();
 }
 
 // 详情页轮播「按当前宽度重算高度」的回调。转屏后宽度变了要重算，
@@ -811,14 +893,17 @@ route('edit', async (params) => {
           formRatios.splice(i, 1);
           paintPhoto();
         };
-        // 点图设为首图：把这张挪到 0 号位（三个数组一起挪，别错位）
+        // 点图全屏看（能和详情页一样放大核对）；「设为首图」在全屏里点，避免误触改封面
         cell.onclick = () => {
-          if (i === 0) return;
-          formPhotos.unshift(formPhotos.splice(i, 1)[0]);
-          formThumbs.unshift(formThumbs.splice(i, 1)[0]);
-          formRatios.unshift(formRatios.splice(i, 1)[0]);
-          paintPhoto();
-          toast('已设为首图');
+          openViewer(formPhotos.map((s) => ({ full: s })), i, {
+            onSetFirst: (k) => {
+              formPhotos.unshift(formPhotos.splice(k, 1)[0]);
+              formThumbs.unshift(formThumbs.splice(k, 1)[0]);
+              formRatios.unshift(formRatios.splice(k, 1)[0]);
+              paintPhoto();
+              toast('已设为首图');
+            },
+          });
         };
         grid.append(cell);
       });
@@ -835,7 +920,7 @@ route('edit', async (params) => {
       photoBox.append(grid);
       const tip = photoBusy
         ? `正在压缩第 ${photoBusy}/${photoTotal} 张…`
-        : `已选 ${formPhotos.length}/${MAX_PHOTOS} 张 · 点图片可设为首图，第 1 张作列表封面`;
+        : `已选 ${formPhotos.length}/${MAX_PHOTOS} 张 · 点图放大查看（可设为首图），第 1 张作列表封面`;
       photoBox.append(el(`<div class="photo-tip">${tip}</div>`));
       return;
     }
