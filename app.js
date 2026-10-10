@@ -574,6 +574,85 @@ function buildStats(records) {
   return { byId, catTotal: catN };
 }
 
+/* ============ 月度回顾：某个月的杯数 / 品类分布 / 最爱 top3 ============ */
+const LS_REVIEW_SEEN = 'coffee-review-seen';
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// 月份一律按**本地时间**算。drankAt 记的是本机时钟上的那一刻，拿 UTC 切月会让月初深夜
+// 的记录串到隔壁月去。月份 key 形如 '2026-09'：能比大小、能当 localStorage 的值。
+function monthKey(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+// 半开区间 [start, end)。用 Date(y, m, 1) 构造而不是对某个已有日期 setMonth——
+// 后者在 31 号上会溢出（1/31 调 setMonth(1) 会跑到 3/3）
+function monthRange(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return { start: new Date(y, m - 1, 1).getTime(), end: new Date(y, m, 1).getTime() };
+}
+// 前后挪月份。m 给 0 或 13 时 Date 会自然进位/退位，跨年不用特判
+function shiftMonth(ym, delta) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+function monthLabel(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return `${y} 年 ${m} 月`;
+}
+
+// 榜单的聚合单位＝**饮品名**（跨店合并：同一款拿铁在哪家喝都算同一款）。
+// 注意和 buildStats 的口径不同——那边是「店名+饮品名」，用来数「这款在本店第几次」，不改。
+function reviewKey(r) { return String(r.coffee || r.shop || '').trim().toLowerCase(); }
+
+// 一次遍历：先按月筛，再把同款并成一组。不调 buildStats——那个为了算累计序号会把
+// 全量记录排一遍序，这里用不上。
+function buildMonthReview(records, ym) {
+  const { start, end } = monthRange(ym);
+  const cats = {}, groups = new Map();
+  let total = 0, rated = 0;
+  for (const r of records) {
+    const t = Number(r.drankAt) || 0;
+    if (t < start || t >= end) continue;
+    total++;
+    if (r.rating) rated++;
+    cats[r.category] = (cats[r.category] || 0) + 1;
+    const k = reviewKey(r);
+    if (!k) continue; // 店名饮品名都空，没有身份可归并，进不了榜单
+    let g = groups.get(k);
+    if (!g) {
+      g = { name: String(r.coffee || r.shop || '').trim() || '未命名', rating: 0, n: 0, last: 0, shops: {} };
+      groups.set(k, g);
+    }
+    g.n++;
+    g.rating = Math.max(g.rating, Number(r.rating) || 0); // 组内取最高分：最好喝的那次代表它
+    g.last = Math.max(g.last, t);
+    if (r.shop) g.shops[r.shop] = (g.shops[r.shop] || 0) + 1;
+  }
+  // 排名：星级降序 → 杯数降序 → 最近喝过的排前面（同构于上面 buildPool 的排序写法）
+  const top = [...groups.values()]
+    .sort((a, b) => b.rating - a.rating || b.n - a.n || b.last - a.last)
+    .slice(0, 3)
+    .map((g) => {
+      const s = Object.entries(g.shops).sort((a, b) => b[1] - a[1])[0];
+      return { name: g.name, rating: g.rating, n: g.n, shop: s ? s[0] : '' };
+    });
+  return {
+    ym, total, top,
+    cats: CATEGORIES.map((c) => ({ label: c.label, n: cats[c.id] || 0 })).filter((c) => c.n > 0),
+    allUnrated: total > 0 && rated === 0,
+  };
+}
+
+// 读不到（隐私模式等）返回 null：此时一律不弹——宁可漏一次，也不能每次打开都弹
+function seenReviewMonth() {
+  try { return localStorage.getItem(LS_REVIEW_SEEN) || ''; } catch (e) { return null; }
+}
+function markReviewSeen(ym) {
+  try { localStorage.setItem(LS_REVIEW_SEEN, ym); } catch (e) {}
+}
+
 const LS_LAST_BACKUP = 'coffee-last-backup';
 
 /* ============ 主题：默认跟随系统，设置页可固定为浅色/深色 ============ */
@@ -635,10 +714,31 @@ async function render() {
   const params = Object.fromEntries(new URLSearchParams(qs || ''));
   try {
     await (routes[name] || routes.home)(params);
+    await maybeAutoReview(name);
   } catch (err) {
     console.error('[饮记] 页面渲染失败:', err);
     renderError(err);
   }
+}
+
+/* ============ 每月第一次打开：自动弹上月回顾 ============ */
+// 只在本次会话第一次渲染后判一次——首页切搜索框、切品类标签都会重跑 render（见 home 路由），
+// 没有这个标志会反复弹。
+let reviewAutoChecked = false;
+async function maybeAutoReview(current) {
+  if (reviewAutoChecked) return;
+  reviewAutoChecked = true;
+  if (current === 'review') return; // 深链直接落在回顾页，不用再跳
+  const seen = seenReviewMonth();
+  if (seen === null) return; // 读不到（隐私模式）就不弹：宁可漏一次，也不能每次打开都弹
+  const prev = shiftMonth(monthKey(Date.now()), -1);
+  if (seen === prev) return; // 这个月的回顾已经弹过了
+  let rec;
+  try { rec = buildMonthReview(await DB.all(), prev); } catch (e) { return; }
+  // 决策即记账（上月 0 杯也记）：等用户关掉卡片再记的话，中途强杀会重复弹
+  markReviewSeen(prev);
+  if (!rec.total) return;
+  go('review', { ym: prev });
 }
 // 统一错误兜底：IndexedDB 打不开、配额满等异常不再白屏
 function renderError(err) {
@@ -1368,6 +1468,12 @@ route('settings', async () => {
     s.append(el(`<div class="stat" style="margin-top:8px">${catLine}</div>`));
   }
 
+  // 月度回顾入口：无条件展示（当月还没记录也能进去看历史月份）
+  s.append(el(`<h3>月度回顾</h3>`));
+  const reviewBtn = el(`<button class="bigbtn">📅 查看上月回顾</button>`);
+  reviewBtn.onclick = () => go('review');
+  s.append(reviewBtn);
+
   // 自定义店名（保存记录时自动收集，点一下删除；超过 10 个默认折叠）
   s.append(el(`<h3>自定义店名</h3>`));
   const customShops = loadCustomShops();
@@ -1420,6 +1526,79 @@ route('settings', async () => {
   }).catch(() => { verLine.textContent = ''; });
 
   page.append(s);
+  app.innerHTML = '';
+  app.append(page);
+});
+
+/* ============ 月度回顾页 ============ */
+// 用独立路由而不是 showOverlay 弹层：内容量大（大数字＋品类条＋榜单），而且弹层挂在 body 上，
+// hashchange 时 render() 只换 #app，弹层会残留成死 UI。走路由就能白拿返回键和侧滑返回。
+route('review', async (params) => {
+  const cur = monthKey(Date.now());
+  const ym = /^\d{4}-\d{2}$/.test(params.ym || '') ? params.ym : shiftMonth(cur, -1);
+  const rec = buildMonthReview(await DB.all(), ym);
+
+  const page = el(`<div></div>`);
+  const topbar = el(`<div class="topbar"></div>`);
+  const back = el(`<button class="iconbtn">←</button>`);
+  back.onclick = () => goBack('settings');
+  const prev = el(`<button class="iconbtn rv-nav" aria-label="上个月">‹</button>`);
+  // 用 location.replace 而非 go()：翻月份不该往历史栈里压条目，否则返回键要按很多次
+  prev.onclick = () => location.replace('#review?ym=' + shiftMonth(ym, -1));
+  const next = el(`<button class="iconbtn rv-nav" aria-label="下个月">›</button>`);
+  // 往后翻到当月为止——再看下去是未来，没有记录可看
+  if (ym >= cur) { next.disabled = true; next.classList.add('off'); }
+  else next.onclick = () => location.replace('#review?ym=' + shiftMonth(ym, 1));
+  topbar.append(back, el(`<div class="title rv-title">${monthLabel(ym)}</div>`), prev, next);
+  page.append(topbar);
+
+  if (!rec.total) {
+    page.append(el(`
+      <div class="empty">
+        <div class="big">🥤</div>
+        <div class="t1">这个月没有记录</div>
+        <div class="t2">记账以后，这里会显示喝了多少杯、最爱喝什么</div>
+      </div>`));
+    app.innerHTML = '';
+    app.append(page);
+    return;
+  }
+
+  const body = el(`<div class="review"></div>`);
+  body.append(el(`<div class="rv-big">${rec.total}<span class="rv-unit">杯</span></div>`));
+
+  // 品类分布：按 CATEGORIES 顺序，条形长度按当月最大值归一（不是按总数），
+  // 否则品类多的时候每根都短得看不出差别
+  const maxCat = Math.max(...rec.cats.map((c) => c.n));
+  const bars = el(`<div class="rv-bars"></div>`);
+  for (const c of rec.cats) {
+    bars.append(el(`<div class="rv-bar">
+      <span class="rv-bar-label">${esc(c.label)}</span>
+      <span class="rv-bar-track"><span class="rv-bar-fill" style="width:${Math.round(c.n / maxCat * 100)}%"></span></span>
+      <span class="rv-bar-n">${c.n}</span>
+    </div>`));
+  }
+  body.append(el(`<h3>品类分布</h3>`), bars);
+
+  if (rec.top.length) {
+    body.append(el(`<h3>最爱喝</h3>`));
+    if (rec.allUnrated) body.append(el(`<div class="rv-note">这个月都没评分，按杯数排的</div>`));
+    const list = el(`<div class="rv-top"></div>`);
+    rec.top.forEach((t, i) => {
+      // 店名只在和饮品名不同时才显示（没填饮品名时它是同一串，显示两遍很怪）
+      const shop = (t.shop && t.shop !== t.name) ? `<span class="rv-shop">${esc(t.shop)}</span>` : '';
+      // 未评分显示文字：stars(0) 会渲染成 ☆☆☆☆☆，看着像"故意打了 0 分"
+      const rate = t.rating ? `<span class="rv-stars">${stars(t.rating)}</span>` : `<span class="rv-norating">未评分</span>`;
+      list.append(el(`<div class="rv-row">
+        <span class="rv-rank rv-rank-${i + 1}">${i + 1}</span>
+        <span class="rv-name">${esc(t.name)}</span>
+        <span class="rv-meta">${rate}<span class="rv-n">${t.n} 杯</span>${shop}</span>
+      </div>`));
+    });
+    body.append(list);
+  }
+
+  page.append(body);
   app.innerHTML = '';
   app.append(page);
 });

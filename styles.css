@@ -646,6 +646,79 @@ html, body {
   padding: 10px 0 4px;
 }
 
+/* ============ 月度回顾 ============ */
+/* 只用主题变量，所以深色模式不用额外覆盖 */
+.rv-nav { font-size: 24px; padding: 2px 10px; line-height: 1; }
+.rv-nav.off { opacity: .3; }
+.topbar .rv-title { font-size: 17px; }
+.review { padding: 20px 16px 40px; }
+.rv-big {
+  text-align: center;
+  font-size: 64px;
+  font-weight: 700;
+  color: var(--brown);
+  line-height: 1.1;
+  letter-spacing: -2px;
+}
+.rv-big .rv-unit { font-size: 20px; font-weight: 500; color: var(--text-soft); margin-left: 8px; letter-spacing: 0; }
+.review h3 { font-size: 14px; color: var(--text-soft); margin: 28px 0 10px; font-weight: 600; }
+
+/* 品类分布：条形长度按当月最大品类归一 */
+.rv-bars { display: flex; flex-direction: column; gap: 10px; }
+.rv-bar { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.rv-bar-label { flex: 0 0 44px; color: var(--text); }
+.rv-bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--surface);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.rv-bar-fill { display: block; height: 100%; background: var(--brown); border-radius: 999px; }
+.rv-bar-n { flex: 0 0 auto; color: var(--text-soft); font-size: 13px; min-width: 28px; text-align: right; }
+
+/* 最爱喝 top3 */
+.rv-note { font-size: 13px; color: var(--text-soft); margin-bottom: 10px; }
+.rv-top { display: flex; flex-direction: column; gap: 8px; }
+.rv-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+}
+.rv-rank {
+  flex: 0 0 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 冠军换个色，一眼看出来 */
+.rv-rank-1 { background: var(--brown); color: #fff; }
+.rv-name { flex: 1; min-width: 0; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-soft); }
+.rv-stars { color: var(--star); letter-spacing: 1px; }
+.rv-norating { color: var(--text-soft); }
+/* 店名加一道竖线分隔：短店名（如「A」）紧挨着杯数时会读成一串 */
+.rv-shop {
+  color: var(--brown-soft);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-left: 1px solid var(--line);
+  padding-left: 8px;
+}
+
 /* ============ 深色模式 ============ */
 /* 由 <html data-theme="dark"> 触发（跟随系统或手动固定，逻辑见 app.js / index.html） */
 :root[data-theme="dark"] {
