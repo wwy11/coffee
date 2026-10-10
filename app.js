@@ -485,15 +485,14 @@ function splitShopDrink(raw) {
   }
 
   // 1) 店名词库最长匹配（内置 + 自动学到的自定义）→ 店名填词条写法，其后为饮品名
+  // 只从剥掉口语开头后的起始位置匹配，不允许命中句子中间的字（如"奶茶"不该把"xx奶茶店"里的"茶"切断）
   const custom = loadCustomShops().map((k) => ({ name: k, key: k.replace(/\s+/g, '').toLowerCase() }));
-  let hit = -1, hitLen = 0, hitName = '';
+  let hitLen = 0, hitName = '';
   for (const { name, key } of [...SHOP_KW_COMPACT, ...custom]) {
-    const i = s.indexOf(key);
-    if (i >= 0 && key.length > hitLen) { hit = i; hitLen = key.length; hitName = name; }
+    if (s.startsWith(key) && key.length > hitLen) { hitLen = key.length; hitName = name; }
   }
-  if (hit >= 0) {
-    const abs = start + hit;
-    return { shop: hitName, coffee: compact.slice(abs + hitLen) };
+  if (hitLen > 0) {
+    return { shop: hitName, coffee: compact.slice(start + hitLen) };
   }
 
   // 2) 词库没收录 → 第一个品类词处切分，店名保留用户原话
@@ -526,7 +525,10 @@ function buildPool(records, pick) {
 // rank 可选：对词池做变换（用在「饮品名」上，按当前店过滤：只留这家店喝过的）。
 function attachAC(field, input, pool, rank) {
   const list = el(`<div class="ac-list" hidden></div>`);
-  field.append(list);
+  // 用一个 relative 容器包住 input，让 ac-list 的 absolute 定位相对它而不是 .field
+  const wrap = el(`<div class="ac-wrap"></div>`);
+  input.replaceWith(wrap);
+  wrap.append(input, list);
   let items = [];
   const hide = () => { list.hidden = true; list.innerHTML = ''; items = []; };
   const show = () => {
