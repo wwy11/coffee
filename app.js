@@ -58,14 +58,23 @@ const DB = (() => {
   }
 
   return {
-    async all() {
+    async all(opts) {
+      const lite = opts && opts.lite;
       const store = await tx('readonly');
       return new Promise((res, rej) => {
         const out = [];
         const cur = store.openCursor();
         cur.onsuccess = () => {
           const c = cur.result;
-          if (c) { const v = c.value; v.category = normCat(v.category); out.push(v); c.continue(); }
+          if (c) {
+            const v = c.value;
+            v.category = normCat(v.category);
+            // lite 模式：丢掉图片 base64。review / 统计这类读取只用到元数据，
+            // 保留图片会让 cursor 结果每条占几百 KB，手机上一次读几百条会卡 10s+
+            if (lite) { delete v.photos; delete v.thumbs; delete v.ratios; delete v.photo; delete v.photoThumb; }
+            out.push(v);
+            c.continue();
+          }
           else { out.sort((a, b) => b.drankAt - a.drankAt); res(out); }
         };
         cur.onerror = () => rej(cur.error);
@@ -716,7 +725,9 @@ async function render() {
   const params = Object.fromEntries(new URLSearchParams(qs || ''));
   try {
     await (routes[name] || routes.home)(params);
-    await maybeAutoReview(name);
+    // 回顾检查不要阻塞主路由的渲染结束——冷启动时 home 的 DB.all 已经读完数据，
+    // 这里再串行跑一遍（lite 版本）等于白等一次 I/O，手机上肉眼可见地延后首屏可交互
+    maybeAutoReview(name).catch((e) => console.error('[饮记] 月度回顾检查失败:', e));
   } catch (err) {
     console.error('[饮记] 页面渲染失败:', err);
     renderError(err);
@@ -736,7 +747,7 @@ async function maybeAutoReview(current) {
   const prev = shiftMonth(monthKey(Date.now()), -1);
   if (seen === prev) return; // 这个月的回顾已经弹过了
   let rec;
-  try { rec = buildMonthReview(await DB.all(), prev); } catch (e) { return; }
+  try { rec = buildMonthReview(await DB.all({ lite: true }), prev); } catch (e) { return; }
   // 决策即记账（上月 0 杯也记）：等用户关掉卡片再记的话，中途强杀会重复弹
   markReviewSeen(prev);
   if (!rec.total) return;
@@ -1538,7 +1549,6 @@ route('settings', async () => {
 route('review', async (params) => {
   const cur = monthKey(Date.now());
   const ym = /^\d{4}-\d{2}$/.test(params.ym || '') ? params.ym : shiftMonth(cur, -1);
-  const rec = buildMonthReview(await DB.all(), ym);
 
   const page = el(`<div></div>`);
   const topbar = el(`<div class="topbar"></div>`);
@@ -1554,6 +1564,16 @@ route('review', async (params) => {
   topbar.append(back, el(`<div class="title rv-title">${monthLabel(ym)}</div>`), prev, next);
   page.append(topbar);
 
+  // 先把骨架挂上，用户立刻看到月份标题和返回键；DB.all 在手机上几百条记录要秒级，
+  // 不先渲染一帧，整个 review 页会白屏到数据回来为止
+  const placeholder = el(`<div class="empty"><div class="t1">加载中…</div></div>`);
+  page.append(placeholder);
+  app.innerHTML = '';
+  app.append(page);
+
+  const rec = buildMonthReview(await DB.all({ lite: true }), ym);
+  placeholder.remove();
+
   if (!rec.total) {
     page.append(el(`
       <div class="empty">
@@ -1561,8 +1581,6 @@ route('review', async (params) => {
         <div class="t1">这个月没有记录</div>
         <div class="t2">记账以后，这里会显示喝了多少杯、最爱喝什么</div>
       </div>`));
-    app.innerHTML = '';
-    app.append(page);
     return;
   }
 
@@ -1601,8 +1619,6 @@ route('review', async (params) => {
   }
 
   page.append(body);
-  app.innerHTML = '';
-  app.append(page);
 });
 
 /* ============ 遮罩 ============ */
