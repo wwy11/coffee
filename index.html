@@ -36,7 +36,9 @@
         try {
           // 页面加载时是否已被旧 SW 控制：没有则本次是首次安装，之后的接管不算"更新"
           const hadController = !!navigator.serviceWorker.controller;
-          const reg = await navigator.serviceWorker.register('sw.js');
+          // updateViaCache='none'：注册和 update() 时都强制网络请求 sw.js，不走 HTTP 缓存。
+          // 没有这个的话，浏览器可能把 sw.js 本身也缓存一段时间，于是永远发现不了新版本。
+          const reg = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
           // 每次打开主动查一次更新
           reg.update();
           // 新版本装好后自动切换并刷新一次（数据不受影响）
