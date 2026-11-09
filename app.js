@@ -188,16 +188,22 @@ function photoList(rec) {
   const ph = Array.isArray(rec.photos) ? rec.photos : [];
   const th = Array.isArray(rec.thumbs) ? rec.thumbs : [];
   const ra = Array.isArray(rec.ratios) ? rec.ratios : [];
-  for (let i = 0; i < ph.length && out.length < MAX_PHOTOS; i++) {
-    if (typeof ph[i] !== 'string' || !ph[i]) continue;
+  // lite 模式下 photos 被删掉只剩 thumbs，循环要以两者里非空的那个为准，否则首页缩略图全没
+  const n = Math.max(ph.length, th.length);
+  for (let i = 0; i < n && out.length < MAX_PHOTOS; i++) {
+    const big = typeof ph[i] === 'string' ? ph[i] : '';
+    const small = typeof th[i] === 'string' ? th[i] : '';
+    if (!big && !small) continue;
     out.push({
-      full: ph[i],
-      thumb: (typeof th[i] === 'string' && th[i]) ? th[i] : ph[i], // 没小图就回落到大图，不破
+      full: big || small,              // lite 模式没 big 时，用 small 顶上（详情页用不到 full）
+      thumb: small || big,             // 没小图就回落到大图，不破
       ratio: Number(ra[i]) || 0,
     });
   }
-  if (!out.length && typeof rec.photo === 'string' && rec.photo) {
-    out.push({ full: rec.photo, thumb: rec.photoThumb || rec.photo, ratio: 0 });
+  if (!out.length && (typeof rec.photo === 'string' || typeof rec.photoThumb === 'string')) {
+    const big = rec.photo || '';
+    const small = rec.photoThumb || '';
+    if (big || small) out.push({ full: big || small, thumb: small || big, ratio: 0 });
   }
   return out;
 }
@@ -672,8 +678,6 @@ window.addEventListener('DOMContentLoaded', render);
 /* ============ 首页：列表 + 搜索 + 品类筛选 ============ */
 route('home', async () => {
   let records = await DB.all({ lite: true });
-  let stats = buildStats(records); // 序号只跟全量记录有关，筛选不改变它，所以整页算一次
-  const refreshStats = () => { stats = buildStats(records); };
 
   const page = el(`<div></div>`);
 
@@ -740,9 +744,6 @@ route('home', async () => {
       return;
     }
     for (const r of list) {
-      const st = stats.byId[r.id] || {};
-      // 「第 N 次」是同一家店的同一款——换店就是新的第 1 次；缺店名或饮品名时不显示，免得出现孤零零一个序号
-      const seq = (r.shop && r.coffee && st.itemSeq) ? `第 ${st.itemSeq} 次 · ` : '';
       // 主行突出饮品名（你要记的主体），店名退到副行。
       // 没填饮品名时主行回落成店名，副行就不再重复店名（避免一行里出现两遍）
       const main = r.coffee || r.shop || '未命名';
@@ -756,7 +757,7 @@ route('home', async () => {
             <div class="thumb${thumb ? '' : ' thumb-empty'}">${thumb ? `<img src="${esc(thumb)}" alt="" />` : PH_ICON}</div>
             <div class="item-main">
               <div><span class="stars">${stars(r.rating)}</span><span class="drink">${esc(main)}</span></div>
-              <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${subShop}${seq}${relTime(r.drankAt)}</div>
+              <div class="sub"><span class="cat-chip">${CAT_LABEL[r.category]}</span>${subShop}${relTime(r.drankAt)}</div>
             </div>
           </div>
           <button class="item-del" aria-label="删除">🗑</button>
@@ -774,7 +775,6 @@ route('home', async () => {
           return;
         }
         records = records.filter((x) => x.id !== r.id);
-        refreshStats(); // 序号实时算，删一条会影响它后面的「第几次」
         renderList();
         // 给一次反悔机会：5 秒内可撤销。r 是原对象，put 回去即完整恢复（时间戳原样保留）
         toast('已删除', {
@@ -787,8 +787,7 @@ route('home', async () => {
               toast('恢复失败');
               return;
             }
-            records = await DB.all(); // 重读一遍，保证排序和当前筛选状态一致
-            refreshStats();
+            records = await DB.all({ lite: true }); // 重读一遍，保证排序和当前筛选状态一致
             renderList();
             toast('已恢复');
           },
