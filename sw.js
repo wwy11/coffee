@@ -1,4 +1,4 @@
-const CACHE = 'coffee-v32';
+const CACHE = 'coffee-v33';
 const ASSETS = [
   './',
   './index.html',
@@ -24,6 +24,11 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('message', (e) => {
   if (e.data === 'skip-waiting') self.skipWaiting();
+  // 版本对账：主线程发 'get-version' + MessageChannel，SW 回传当前 CACHE 常量
+  // 用于识别"SW 被卡在旧版本、update() 一直拉不下来新 sw.js"的情况
+  if (e.data === 'get-version' && e.ports && e.ports[0]) {
+    e.ports[0].postMessage(CACHE);
+  }
 });
 
 self.addEventListener('fetch', (e) => {

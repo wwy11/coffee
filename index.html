@@ -60,6 +60,38 @@
             try { sessionStorage.setItem('coffee-updated', '1'); } catch (e) {}
             location.reload();
           });
+
+          // 版本对账自愈：如果 SW 被卡在旧版本（例如之前 network-first 策略下，手机弱网导致
+          // 新 sw.js 永远拉不下来），走正常 update() 流程救不回来，这里强踢一次。
+          // 做法：问当前 SW 自己是什么版本（get-version），同时绕过所有缓存从网络拿一份 sw.js
+          // 源码解出里面的 CACHE 常量，两者不一致就注销 SW + 清所有 caches + 重载。
+          setTimeout(async () => {
+            if (!navigator.serviceWorker.controller) return; // 首次安装，无需对账
+            try {
+              // 1) 问当前 SW 自报版本
+              const curVer = await new Promise((resolve) => {
+                const ch = new MessageChannel();
+                const timer = setTimeout(() => resolve(null), 2000);
+                ch.port1.onmessage = (e) => { clearTimeout(timer); resolve(e.data); };
+                navigator.serviceWorker.controller.postMessage('get-version', [ch.port2]);
+              });
+              if (!curVer) return; // 老版本 SW 不懂这条消息，不碰
+              // 2) 绕 cache 拿网络上最新的 sw.js，正则抠出里面的 CACHE 字面量
+              const res = await fetch('sw.js?bust=' + Date.now(), { cache: 'no-store' });
+              if (!res.ok) return;
+              const text = await res.text();
+              const m = text.match(/CACHE\s*=\s*['"]([^'"]+)['"]/);
+              if (!m) return;
+              const latestVer = m[1];
+              if (latestVer === curVer) return; // 一致，不折腾
+              // 3) 版本不一致——当前 SW 装不进新版本。清掉所有注册 + 所有 caches，刷一次就是全新
+              const regs = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(regs.map((r) => r.unregister()));
+              const keys = await caches.keys();
+              await Promise.all(keys.map((k) => caches.delete(k)));
+              location.reload();
+            } catch (e) {}
+          }, 1500);
         } catch (e) {}
       });
     }
