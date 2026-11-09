@@ -1,4 +1,4 @@
-const CACHE = 'coffee-v30';
+const CACHE = 'coffee-v31';
 const ASSETS = [
   './',
   './index.html',
@@ -32,14 +32,17 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return; // 跨域资源交给浏览器默认处理
 
-  // 本站资源：network-first —— 有网总拿最新，离线才回退缓存
+  // 本站资源：stale-while-revalidate —— 有缓存立即返，后台顺带更新；离线也能秒开
   e.respondWith(
-    fetch(req)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-        return res;
-      })
-      .catch(() => caches.match(req).then((cached) => cached || caches.match('./index.html')))
+    caches.match(req).then((cached) => {
+      const fetchPromise = fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          return res;
+        })
+        .catch(() => cached || caches.match('./index.html'));
+      return cached || fetchPromise;
+    })
   );
 });

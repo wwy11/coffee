@@ -71,7 +71,7 @@ const DB = (() => {
             v.category = normCat(v.category);
             // lite 模式：丢掉图片 base64。review / 统计这类读取只用到元数据，
             // 保留图片会让 cursor 结果每条占几百 KB，手机上一次读几百条会卡 10s+
-            if (lite) { delete v.photos; delete v.thumbs; delete v.ratios; delete v.photo; delete v.photoThumb; }
+            if (lite) { delete v.photos; delete v.photo; }
             out.push(v);
             c.continue();
           }
@@ -772,7 +772,7 @@ window.addEventListener('DOMContentLoaded', render);
 
 /* ============ 首页：列表 + 搜索 + 品类筛选 ============ */
 route('home', async () => {
-  let records = await DB.all();
+  let records = await DB.all({ lite: true });
   let stats = buildStats(records); // 序号只跟全量记录有关，筛选不改变它，所以整页算一次
   const refreshStats = () => { stats = buildStats(records); };
 
