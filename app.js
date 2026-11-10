@@ -557,10 +557,13 @@ function attachAC(field, input, pool, rank) {
     items = top;
     list.innerHTML = top.map((v, i) => `<button type="button" class="ac-item" data-i="${i}">${esc(v)}</button>`).join('');
     list.hidden = false;
+    // 关键：不要把"选中"绑在 pointerdown 上——触屏手指一按下就触发，用户想滑动找其他项时，
+    // 还没来得及 touchmove，列表就被选中并关闭，表现为「下滑总变成选中错项」。
+    // 改用：mousedown 只做一件事——挡住 input 失焦（否则 iOS 键盘会收起、整个表单重排）；
+    // 真正的"选中"走 click，click 在触屏上只在 touchstart→touchend 没有移动时才派发，天然区分点按和滑动。
     list.querySelectorAll('.ac-item').forEach((b) => {
-      // pointerdown：比 click 早，preventDefault 能挡住 input 失焦（否则 iOS 键盘会收起来）
-      b.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => {
         input.value = items[Number(b.dataset.i)];
         hide();
         input.dispatchEvent(new Event('input', { bubbles: true }));
