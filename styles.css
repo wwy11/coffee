@@ -357,6 +357,10 @@ html, body {
   max-height: 216px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* 允许垂直滑动滚动列表；没有这个，手指在 button 上按下会被当作点按意图、
+     垂直 touchmove 吃不到，表现为"下滑直接选中某项" */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 .ac-list[hidden] { display: none; }
 .ac-item {
@@ -371,6 +375,9 @@ html, body {
   font-family: inherit;
   padding: 12px;
   cursor: pointer;
+  /* 关键：button 默认 touch-action 不允许垂直平移，手指按住 button 滑动时浏览器
+     会尝试触发 click 而非滚动祖先列表。显式允许 pan-y，滚动才能穿透上去。 */
+  touch-action: pan-y;
 }
 .ac-item:first-child { border-top: 0; }
 .ac-item:active { background: var(--mint); }

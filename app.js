@@ -557,17 +557,37 @@ function attachAC(field, input, pool, rank) {
     items = top;
     list.innerHTML = top.map((v, i) => `<button type="button" class="ac-item" data-i="${i}">${esc(v)}</button>`).join('');
     list.hidden = false;
-    // 关键：不要把"选中"绑在 pointerdown 上——触屏手指一按下就触发，用户想滑动找其他项时，
-    // 还没来得及 touchmove，列表就被选中并关闭，表现为「下滑总变成选中错项」。
-    // 改用：mousedown 只做一件事——挡住 input 失焦（否则 iOS 键盘会收起、整个表单重排）；
-    // 真正的"选中"走 click，click 在触屏上只在 touchstart→touchend 没有移动时才派发，天然区分点按和滑动。
+    // 关键：不要把"选中"绑在 pointerdown/touchstart 上——触屏手指一按下就触发，
+    // 用户想滑动找其他项时还没来得及 touchmove，列表就被选中并关闭。
+    //
+    // 现在的分工：
+    //   1) mousedown 只做 preventDefault，挡 iOS 的 input 失焦（否则键盘收起、表单重排）
+    //   2) touchstart 记下初始坐标；touchmove 一旦超过阈值就标记为"滑动"
+    //   3) touchend：如果没滑动过才真正选中；滑动过则放手，让容器做滚动
+    //   4) 非触屏（鼠标）走 click 分支
     list.querySelectorAll('.ac-item').forEach((b) => {
+      let startY = 0, moved = false;
       b.addEventListener('mousedown', (e) => e.preventDefault());
-      b.addEventListener('click', () => {
+      b.addEventListener('touchstart', (e) => {
+        moved = false;
+        startY = e.touches[0] ? e.touches[0].clientY : 0;
+      }, { passive: true });
+      b.addEventListener('touchmove', (e) => {
+        const y = e.touches[0] ? e.touches[0].clientY : startY;
+        if (Math.abs(y - startY) > 8) moved = true; // 8px 阈值：手抖不算滑动
+      }, { passive: true });
+      const pick = () => {
         input.value = items[Number(b.dataset.i)];
         hide();
         input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      b.addEventListener('touchend', (e) => {
+        if (moved) return;           // 滑动中——不选中，让浏览器完成滚动
+        e.preventDefault();          // 阻止后续合成 click，避免触发两次
+        pick();
       });
+      // 鼠标 / 键盘用户：touch 系列不会派发，走 click
+      b.addEventListener('click', pick);
     });
   };
   input.addEventListener('input', show);
