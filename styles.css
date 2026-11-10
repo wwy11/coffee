@@ -354,7 +354,7 @@ html, body {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  max-height: 216px;
+  max-height: 300px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   /* 允许垂直滑动滚动列表；没有这个，手指在 button 上按下会被当作点按意图、

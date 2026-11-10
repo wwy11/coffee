@@ -545,50 +545,60 @@ function attachAC(field, input, pool, rank) {
   input.replaceWith(wrap);
   wrap.append(input, list);
   let items = [];
-  const hide = () => { list.hidden = true; list.innerHTML = ''; items = []; };
+  let lastKey = '';  // 记住上一次渲染的候选签名，不变就不重绘——否则每次 input 都会重置滚动位置
+  const hide = () => { list.hidden = true; list.innerHTML = ''; items = []; lastKey = ''; };
+
+  // 事件委托挂在 list 容器上，不随 innerHTML 重绘失效；
+  // 现在候选 30 条容器可滚动，用户下滑到第 15 条再点，保留滚动位置能稳稳落到"第 15 条"而不是"第 1 条"
+  let startY = 0, moved = false, startItem = null;
+  const itemFromTarget = (t) => t && t.closest ? t.closest('.ac-item') : null;
+  const pick = (b) => {
+    if (!b) return;
+    const v = items[Number(b.dataset.i)];
+    if (v === undefined) return;
+    input.value = v;
+    hide();
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  // mousedown 挡住 iOS input 失焦，避免键盘收起导致表单重排
+  list.addEventListener('mousedown', (e) => { if (itemFromTarget(e.target)) e.preventDefault(); });
+  list.addEventListener('touchstart', (e) => {
+    startItem = itemFromTarget(e.target);
+    moved = false;
+    startY = e.touches[0] ? e.touches[0].clientY : 0;
+  }, { passive: true });
+  list.addEventListener('touchmove', (e) => {
+    const y = e.touches[0] ? e.touches[0].clientY : startY;
+    if (Math.abs(y - startY) > 8) moved = true; // 8px 阈值：手抖不算滑动
+  }, { passive: true });
+  list.addEventListener('touchend', (e) => {
+    if (moved || !startItem) return;      // 滑动中 / 没按在候选上——不选
+    const b = itemFromTarget(e.target) || startItem;
+    if (b !== startItem) return;          // 落点和起点不是同一项——保守不选
+    e.preventDefault();                   // 阻合成 click，避免触发两次
+    pick(b);
+  });
+  // 鼠标 / 键盘用户：touch 系列不会派发，走 click
+  list.addEventListener('click', (e) => pick(itemFromTarget(e.target)));
+
   const show = () => {
     if (!pool.length) { hide(); return; }
     const q = input.value.trim().toLowerCase();
     const src = rank ? rank(pool) : pool;
     const hit = q ? src.filter((v) => v.toLowerCase().includes(q)) : src;
-    const top = hit.slice(0, 6);
+    const top = hit.slice(0, 30);
     // 只有一条候选且和已输入的完全一样 → 没必要占地方
     if (!top.length || (top.length === 1 && top[0] === input.value.trim())) { hide(); return; }
-    items = top;
-    list.innerHTML = top.map((v, i) => `<button type="button" class="ac-item" data-i="${i}">${esc(v)}</button>`).join('');
+    // 候选内容一样就别重绘：innerHTML = ... 会把滚动位置重置到顶，
+    // 导致"下滑看到想选的项、输入框再触发一次 input，列表又跳回第一页"的体验
+    const key = top.join(' ');
+    if (key !== lastKey) {
+      items = top;
+      lastKey = key;
+      list.innerHTML = top.map((v, i) => `<button type="button" class="ac-item" data-i="${i}">${esc(v)}</button>`).join('');
+      list.scrollTop = 0; // 候选真变了才回到顶部
+    }
     list.hidden = false;
-    // 关键：不要把"选中"绑在 pointerdown/touchstart 上——触屏手指一按下就触发，
-    // 用户想滑动找其他项时还没来得及 touchmove，列表就被选中并关闭。
-    //
-    // 现在的分工：
-    //   1) mousedown 只做 preventDefault，挡 iOS 的 input 失焦（否则键盘收起、表单重排）
-    //   2) touchstart 记下初始坐标；touchmove 一旦超过阈值就标记为"滑动"
-    //   3) touchend：如果没滑动过才真正选中；滑动过则放手，让容器做滚动
-    //   4) 非触屏（鼠标）走 click 分支
-    list.querySelectorAll('.ac-item').forEach((b) => {
-      let startY = 0, moved = false;
-      b.addEventListener('mousedown', (e) => e.preventDefault());
-      b.addEventListener('touchstart', (e) => {
-        moved = false;
-        startY = e.touches[0] ? e.touches[0].clientY : 0;
-      }, { passive: true });
-      b.addEventListener('touchmove', (e) => {
-        const y = e.touches[0] ? e.touches[0].clientY : startY;
-        if (Math.abs(y - startY) > 8) moved = true; // 8px 阈值：手抖不算滑动
-      }, { passive: true });
-      const pick = () => {
-        input.value = items[Number(b.dataset.i)];
-        hide();
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-      };
-      b.addEventListener('touchend', (e) => {
-        if (moved) return;           // 滑动中——不选中，让浏览器完成滚动
-        e.preventDefault();          // 阻止后续合成 click，避免触发两次
-        pick();
-      });
-      // 鼠标 / 键盘用户：touch 系列不会派发，走 click
-      b.addEventListener('click', pick);
-    });
   };
   input.addEventListener('input', show);
   input.addEventListener('focus', show);
